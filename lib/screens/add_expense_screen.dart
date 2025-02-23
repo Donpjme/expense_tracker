@@ -16,6 +16,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   final _amountController = TextEditingController();
   String? _selectedCategory; // Track the selected category
   List<Category> _categories = [];
+  bool _isLoading = false; // Track loading state
 
   @override
   void initState() {
@@ -33,6 +34,10 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
   Future<void> _saveExpense() async {
     if (_formKey.currentState!.validate()) {
+      setState(() {
+        _isLoading = true; // Show loading indicator
+      });
+
       final newExpense = Expense(
         id: DateTime.now().toString(),
         title: _titleController.text,
@@ -50,6 +55,13 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       if (isExceeded) {
         _showBudgetExceededNotification(newExpense.category);
       }
+
+      setState(() {
+        _isLoading = false; // Hide loading indicator
+        _titleController.clear(); // Clear the title field
+        _amountController.clear(); // Clear the amount field
+        _selectedCategory = null; // Reset the selected category
+      });
 
       if (!mounted) return; // Check if the widget is still mounted
       Navigator.of(context).pop(); // Go back to the home screen
@@ -85,63 +97,66 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              TextFormField(
-                controller: _titleController,
-                decoration: InputDecoration(labelText: 'Title'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter a title';
-                  }
-                  return null;
-                },
+        child: _isLoading
+            ? Center(
+                child: CircularProgressIndicator()) // Show loading indicator
+            : Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    TextFormField(
+                      controller: _titleController,
+                      decoration: InputDecoration(labelText: 'Title'),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter a title';
+                        }
+                        return null;
+                      },
+                    ),
+                    TextFormField(
+                      controller: _amountController,
+                      decoration: InputDecoration(labelText: 'Amount'),
+                      keyboardType: TextInputType.number,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter an amount';
+                        }
+                        if (double.tryParse(value) == null) {
+                          return 'Please enter a valid number';
+                        }
+                        return null;
+                      },
+                    ),
+                    DropdownButtonFormField<String>(
+                      value: _selectedCategory,
+                      hint: Text('Select Category'),
+                      items: _categories.map((category) {
+                        return DropdownMenuItem(
+                          value: category.name,
+                          child: Text(category.name),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedCategory = value;
+                        });
+                      },
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please select a category';
+                        }
+                        return null;
+                      },
+                    ),
+                    SizedBox(height: 20),
+                    ElevatedButton(
+                      onPressed: _saveExpense,
+                      child: Text('Save Expense'),
+                    ),
+                  ],
+                ),
               ),
-              TextFormField(
-                controller: _amountController,
-                decoration: InputDecoration(labelText: 'Amount'),
-                keyboardType: TextInputType.number,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter an amount';
-                  }
-                  if (double.tryParse(value) == null) {
-                    return 'Please enter a valid number';
-                  }
-                  return null;
-                },
-              ),
-              DropdownButtonFormField<String>(
-                value: _selectedCategory,
-                hint: Text('Select Category'),
-                items: _categories.map((category) {
-                  return DropdownMenuItem(
-                    value: category.name,
-                    child: Text(category.name),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedCategory = value;
-                  });
-                },
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please select a category';
-                  }
-                  return null;
-                },
-              ),
-              SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _saveExpense,
-                child: Text('Save Expense'),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
