@@ -43,9 +43,38 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       );
 
       await DatabaseService().insertExpense(newExpense);
+
+      // Check if the budget is exceeded
+      final isExceeded =
+          await DatabaseService().isBudgetExceeded(newExpense.category);
+      if (isExceeded) {
+        _showBudgetExceededNotification(newExpense.category);
+      }
+
       if (!mounted) return; // Check if the widget is still mounted
       Navigator.of(context).pop(); // Go back to the home screen
     }
+  }
+
+  void _showBudgetExceededNotification(String category) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Budget Exceeded'),
+          content:
+              Text('You have exceeded your budget for the $category category.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override

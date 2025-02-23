@@ -129,7 +129,18 @@ class DatabaseService {
         )
       ''');
 
-      _logger.i('Database tables created successfully');
+      // Insert preloaded categories
+      await db.insert('categories', {'id': '1', 'name': 'Food'});
+      await db.insert('categories', {'id': '2', 'name': 'Transport'});
+      await db.insert('categories', {'id': '3', 'name': 'Entertainment'});
+      await db.insert('categories', {'id': '4', 'name': 'Utilities'});
+      await db.insert('categories', {'id': '5', 'name': 'Health'});
+      await db.insert('categories', {'id': '6', 'name': 'Education'});
+      await db.insert('categories', {'id': '7', 'name': 'Shopping'});
+      await db.insert('categories', {'id': '8', 'name': 'Miscellaneous'});
+
+      _logger
+          .i('Database tables created successfully with preloaded categories');
     } catch (e) {
       _logger.e('Failed to create database tables: $e');
       rethrow;
@@ -243,6 +254,24 @@ class DatabaseService {
       totalSpent += map['amount'] as double;
     }
     return totalSpent;
+  }
+
+  Future<bool> isBudgetExceeded(String category) async {
+    final db = await database;
+    final budgets = await db.query(
+      'budgets',
+      where: 'category = ?',
+      whereArgs: [category],
+    );
+
+    if (budgets.isEmpty) {
+      return false; // No budget set for this category
+    }
+
+    final budget = Budget.fromMap(budgets.first);
+    final totalSpent = await getTotalSpendingForCategory(category);
+
+    return totalSpent > budget.budgetLimit;
   }
 
   Future<void> checkAndAddRecurringExpenses() async {
