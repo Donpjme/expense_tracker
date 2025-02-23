@@ -51,6 +51,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       // Check if the budget is exceeded
       final isExceeded =
           await DatabaseService().isBudgetExceeded(newExpense.category);
+      print('Is budget exceeded? $isExceeded'); // Debug log
+
       if (isExceeded) {
         final budget =
             await DatabaseService().getBudgetForCategory(newExpense.category);
@@ -58,7 +60,11 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             .getTotalSpendingForCategory(newExpense.category);
         final exceededBy =
             ((totalSpent - budget.budgetLimit) / budget.budgetLimit) * 100;
-        _showBudgetExceededNotification(newExpense.category, exceededBy);
+        print(
+            'Budget Limit: ${budget.budgetLimit}, Total Spent: $totalSpent'); // Debug log
+
+        // Show the notification dialog
+        await _showBudgetExceededNotification(newExpense.category, exceededBy);
       }
 
       setState(() {
@@ -73,8 +79,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     }
   }
 
-  void _showBudgetExceededNotification(String category, double exceededBy) {
-    showDialog(
+  Future<void> _showBudgetExceededNotification(
+      String category, double exceededBy) async {
+    await showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
