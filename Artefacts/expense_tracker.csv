@@ -1,0 +1,59 @@
+Issue Type,Summary,Description,Epic Link
+Epic,Budget Management,Allow users to set and track budgets.,
+Epic,Expense Categories,Allow users to categorize expenses.,
+Epic,Financial Reports and Analytics,Provide insights into spending patterns with charts and reports.,
+Epic,Search and Filter Expenses,Make it easier for users to find specific expenses.,
+Epic,Recurring Expenses,Allow users to set up recurring expenses.,
+Epic,Data Backup and Sync,Ensure users don’t lose their data and can access it across devices.,
+Epic,Dark Mode,Add a dark theme for better usability.,
+Epic,Notifications,Send reminders and alerts to help users stay on top of their finances.,
+Epic,Multi-Currency Support,Make the app usable for international users.,
+Epic,Expense Goals,Help users save for specific goals.,
+User Story,Set Monthly Budget,As a user, I want to set a monthly budget for each category so that I can track my spending.,Budget Management
+Task,Create Budget Model,Create a `Budget` model.,Budget Management
+Task,Add Budgets Table,Add a `budgets` table to the database.,Budget Management
+Task,Create BudgetSettingScreen UI,Create a `BudgetSettingScreen` UI.,Budget Management
+Task,Save and Retrieve Budgets,Implement logic to save and retrieve budgets from the database.,Budget Management
+Task,Display Budget Progress,Display budget progress on the home screen.,Budget Management
+User Story,Receive Budget Notifications,As a user, I want to receive notifications when I exceed my budget so that I can adjust my spending.,Budget Management
+Task,Integrate Firebase Cloud Messaging,Integrate Firebase Cloud Messaging for notifications.,Budget Management
+Task,Check Budget Limits,Add logic to check budget limits and send notifications.,Budget Management
+User Story,Categorize Expenses,As a user, I want to categorize my expenses so that I can organize them better.,Expense Categories
+Task,Create Category Model,Add a `Category` model.,Expense Categories
+Task,Add Categories Table,Add a `categories` table to the database.,Expense Categories
+Task,Select Category When Adding Expense,Allow users to select a category when adding an expense.,Expense Categories
+Task,Display Expenses by Category,Display expenses grouped by category on the home screen.,Expense Categories
+User Story,Add Custom Categories,As a user, I want to add custom categories so that I can personalize my expense tracking.,Expense Categories
+Task,Add "Add Category" Button,Add a "Add Category" button to the UI.,Expense Categories
+Task,Save Custom Categories,Implement logic to save custom categories to the database.,Expense Categories
+User Story,View Spending Pie Chart,As a user, I want to view a pie chart of my spending by category so that I can understand my spending patterns.,Financial Reports and Analytics
+Task,Integrate Chart Library,Integrate a chart library (e.g., `fl_chart`).,Financial Reports and Analytics
+Task,Create ReportsScreen UI,Create a `ReportsScreen` UI.,Financial Reports and Analytics
+Task,Display Pie Chart,Fetch and display data in a pie chart.,Financial Reports and Analytics
+User Story,Export Reports as PDF,As a user, I want to export my financial reports as a PDF so that I can share them with others.,Financial Reports and Analytics
+Task,Add PDF Generation Library,Add a PDF generation library (e.g., `pdf`).,Financial Reports and Analytics
+Task,Generate and Export PDFs,Implement logic to generate and export PDFs.,Financial Reports and Analytics
+User Story,Search Expenses,As a user, I want to search for specific expenses by title or category so that I can find them quickly.,Search and Filter Expenses
+Task,Add Search Bar,Add a search bar to the home screen.,Search and Filter Expenses
+Task,Implement Search Functionality,Implement search functionality.,Search and Filter Expenses
+User Story,Filter Expenses by Date Range,As a user, I want to filter expenses by date range so that I can view expenses for a specific period.,Search and Filter Expenses
+Task,Add Date Range Filters,Add date range filters to the home screen.,Search and Filter Expenses
+Task,Implement Filtering Logic,Implement filtering logic.,Search and Filter Expenses
+User Story,Set Up Recurring Expenses,As a user, I want to set up recurring expenses (e.g., rent, subscriptions) so that I don’t have to log them manually every month.,Recurring Expenses
+Task,Add Recurring Option,Add a "Recurring" option to the `AddExpenseScreen`.,Recurring Expenses
+Task,Automate Recurring Expenses,Implement logic to automatically add recurring expenses.,Recurring Expenses
+User Story,Backup Data to Cloud,As a user, I want to back up my data to the cloud so that I don’t lose it.,Data Backup and Sync
+Task,Integrate Firebase Firestore,Integrate Firebase Firestore for cloud storage.,Data Backup and Sync
+Task,Implement Backup and Restore,Implement backup and restore functionality.,Data Backup and Sync
+User Story,Switch Between Light and Dark Themes,As a user, I want to switch between light and dark themes so that I can use the app comfortably in different lighting conditions.,Dark Mode
+Task,Add Theme Toggle,Add a theme toggle in the settings.,Dark Mode
+Task,Implement Dynamic Theme Switching,Implement dynamic theme switching using `ThemeData`.,Dark Mode
+User Story,Receive Expense Reminders,As a user, I want to receive reminders to log my expenses so that I don’t forget.,Notifications
+Task,Implement Daily Reminders,Implement daily reminders using Firebase Cloud Messaging.,Notifications
+User Story,Select Preferred Currency,As a user, I want to select my preferred currency so that I can track expenses in my local currency.,Multi-Currency Support
+Task,Add Currency Selection Dropdown,Add a currency selection dropdown.,Multi-Currency Support
+Task,Integrate Currency Conversion API,Integrate an API for currency conversion.,Multi-Currency Support
+User Story,Set Savings Goals,As a user, I want to set savings goals (e.g., vacation, new gadget) so that I can track my progress.,Expense Goals
+Task,Create Goal Model,Create a `Goal` model.,Expense Goals
+Task,Add GoalsScreen UI,Add a `GoalsScreen` UI.,Expense Goals
+Task,Track Goal Progress,Implement logic to track progress toward goals.,Expense Goals
