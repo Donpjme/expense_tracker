@@ -1,8 +1,16 @@
-import 'dart:io' show Platform;
+import 'dart:io' show Platform, Directory;
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' show Database, databaseFactory, databaseFactoryFfi, getDatabasesPath, openDatabase, sqfliteFfiInit;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart'
+    show
+        Database,
+        databaseFactory,
+        databaseFactoryFfi,
+        getDatabasesPath,
+        openDatabase,
+        sqfliteFfiInit;
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart'; // Add this import
 import 'package:logger/logger.dart';
 import '../models/expense.dart';
 import '../models/budget.dart'; // Import the Budget model
@@ -27,34 +35,69 @@ class DatabaseService {
   }
 
   Future<Database> _initDatabase() async {
-    if (kIsWeb) {
-      // Initialize the database factory for web
-      databaseFactory = databaseFactoryFfiWeb;
-    } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-      // Initialize the database factory for desktop
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
-    } else {
-      // Initialize the database factory for mobile
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
+    try {
+      // Initialize sqflite_ffi for non-web platforms
+      if (!kIsWeb) {
+        sqfliteFfiInit();
+        databaseFactory = databaseFactoryFfi;
+      } else {
+        // Initialize sqflite_ffi_web for web platforms
+        databaseFactory = databaseFactoryFfiWeb;
+      }
+
+      // Get the database path
+      final dbPath = await _getDatabasePath();
+      final path = join(dbPath, 'expenses.db');
+
+      _logger.i('Database path: $path');
+
+      // Ensure the directory exists
+      final dir = Directory(dbPath);
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+
+      // Open or create the database
+      final db = await openDatabase(
+        path,
+        version: _databaseVersion,
+        onCreate: _createDb,
+        onUpgrade: _upgradeDb,
+      );
+
+      _logger.i('Database initialized successfully');
+      return db;
+    } catch (e) {
+      _logger.e('Failed to initialize database: $e');
+      rethrow; // Rethrow the exception to handle it in the calling code
     }
+  }
 
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, 'expenses.db');
+  Future<String> _getDatabasePath() async {
+    if (Platform.isIOS || Platform.isAndroid) {
+      // Use the app's documents directory for mobile platforms
+      final appDocumentsDir = await getApplicationDocumentsDirectory();
+      return appDocumentsDir.path;
+    } else {
+      // Use the default database path for other platforms
+      return await getDatabasesPath();
+    }
+  }
 
-    final db = await openDatabase(
-      path,
-      version: _databaseVersion, // Use the updated version
-      onCreate: _createDb,
-      onUpgrade: _upgradeDb, // Add the onUpgrade method
-    );
+  Future<void> _createDb(Database db, int version) async {
+    try {
+      // Create expenses table
+      await db.execute('''
+        CREATE TABLE expenses(
+          id TEXT PRIMARY KEY,
+          title TEXT,
+          amount REAL,
+          date TEXT,
+          category TEXT
+        )
+      ''');
 
-    // Verify if the budgets table exists
-    final tables = await db.rawQuery(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='budgets'");
-    if (tables.isEmpty) {
-      _logger.i('Budgets table does not exist. Creating it now.');
+      // Create budgets table
       await db.execute('''
         CREATE TABLE budgets(
           id TEXT PRIMARY KEY,
@@ -64,81 +107,64 @@ class DatabaseService {
           endDate TEXT
         )
       ''');
-    } else {
-      _logger.i('Budgets table already exists.');
+
+      // Create categories table
+      await db.execute('''
+        CREATE TABLE categories(
+          id TEXT PRIMARY KEY,
+          name TEXT
+        )
+      ''');
+
+      // Create recurring_expenses table
+      await db.execute('''
+        CREATE TABLE recurring_expenses(
+          id TEXT PRIMARY KEY,
+          title TEXT,
+          amount REAL,
+          category TEXT,
+          startDate TEXT,
+          nextDate TEXT,
+          frequency TEXT
+        )
+      ''');
+
+      _logger.i('Database tables created successfully');
+    } catch (e) {
+      _logger.e('Failed to create database tables: $e');
+      rethrow;
     }
-
-    return db;
-  }
-
-  Future<void> _createDb(Database db, int version) async {
-    // Create expenses table
-    await db.execute('''
-      CREATE TABLE expenses(
-        id TEXT PRIMARY KEY,
-        title TEXT,
-        amount REAL,
-        date TEXT,
-        category TEXT
-      )
-    ''');
-
-    // Create budgets table
-    await db.execute('''
-      CREATE TABLE budgets(
-        id TEXT PRIMARY KEY,
-        category TEXT,
-        budgetLimit REAL,
-        startDate TEXT,
-        endDate TEXT
-      )
-    ''');
-
-    // Create categories table
-    await db.execute('''
-    CREATE TABLE categories(
-      id TEXT PRIMARY KEY,
-      name TEXT
-    )
-  ''');
-
-    // Create recurring_expenses table
-    await db.execute('''
-    CREATE TABLE recurring_expenses(
-      id TEXT PRIMARY KEY,
-      title TEXT,
-      amount REAL,
-      category TEXT,
-      startDate TEXT,
-      nextDate TEXT,
-      frequency TEXT
-    )
-  ''');
   }
 
   // Handle database upgrades
   Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
-    _logger.i('Upgrading database from version $oldVersion to $newVersion');
-    if (oldVersion < 3) {
-      _logger.i('Creating budgets table');
-      await db.execute('''
-        CREATE TABLE IF NOT EXISTS budgets(
-          id TEXT PRIMARY KEY,
-          category TEXT,
-          budgetLimit REAL,
-          startDate TEXT,
-          endDate TEXT
-        )
-      ''');
-    }
-    if (oldVersion < 3) {
-      _logger.i('Creating categories table');
-      await db.execute('''
-      CREATE TABLE IF NOT EXISTS categories(
-        id TEXT PRIMARY KEY,
-        name TEXT
-      )
-    ''');
+    try {
+      _logger.i('Upgrading database from version $oldVersion to $newVersion');
+
+      if (oldVersion < 3) {
+        _logger.i('Creating budgets and categories tables');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS budgets(
+            id TEXT PRIMARY KEY,
+            category TEXT,
+            budgetLimit REAL,
+            startDate TEXT,
+            endDate TEXT
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS categories(
+            id TEXT PRIMARY KEY,
+            name TEXT
+          )
+        ''');
+      }
+
+      _logger.i('Database upgrade completed successfully');
+    } catch (e) {
+      _logger.e('Failed to upgrade database: $e');
+      rethrow;
     }
   }
 
