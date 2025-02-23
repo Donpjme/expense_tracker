@@ -170,6 +170,19 @@ class DatabaseService {
             name TEXT
           )
         ''');
+
+        // Insert preloaded categories if they do not exist
+        final existingCategories = await db.query('categories');
+        if (existingCategories.isEmpty) {
+          await db.insert('categories', {'id': '1', 'name': 'Food'});
+          await db.insert('categories', {'id': '2', 'name': 'Transport'});
+          await db.insert('categories', {'id': '3', 'name': 'Entertainment'});
+          await db.insert('categories', {'id': '4', 'name': 'Utilities'});
+          await db.insert('categories', {'id': '5', 'name': 'Health'});
+          await db.insert('categories', {'id': '6', 'name': 'Education'});
+          await db.insert('categories', {'id': '7', 'name': 'Shopping'});
+          await db.insert('categories', {'id': '8', 'name': 'Miscellaneous'});
+        }
       }
 
       _logger.i('Database upgrade completed successfully');
@@ -256,6 +269,7 @@ class DatabaseService {
     return totalSpent;
   }
 
+  // Check if the budget is exceeded for a specific category
   Future<bool> isBudgetExceeded(String category) async {
     final db = await database;
     final budgets = await db.query(
@@ -265,13 +279,33 @@ class DatabaseService {
     );
 
     if (budgets.isEmpty) {
+      print('No budget set for category: $category'); // Debug log
       return false; // No budget set for this category
     }
 
     final budget = Budget.fromMap(budgets.first);
     final totalSpent = await getTotalSpendingForCategory(category);
 
+    print(
+        'Budget Limit: ${budget.budgetLimit}, Total Spent: $totalSpent'); // Debug log
+
     return totalSpent > budget.budgetLimit;
+  }
+
+  // Get the budget for a specific category
+  Future<Budget> getBudgetForCategory(String category) async {
+    final db = await database;
+    final budgets = await db.query(
+      'budgets',
+      where: 'category = ?',
+      whereArgs: [category],
+    );
+
+    if (budgets.isEmpty) {
+      throw Exception('No budget set for this category');
+    }
+
+    return Budget.fromMap(budgets.first);
   }
 
   Future<void> checkAndAddRecurringExpenses() async {

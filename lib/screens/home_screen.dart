@@ -75,12 +75,19 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Calculate budget progress
-  double _calculateBudgetProgress(List<Expense> expenses, Budget budget) {
+  // Calculate budget progress and over-spending percentage
+  Map<String, dynamic> _calculateBudgetProgress(
+      List<Expense> expenses, Budget budget) {
     final totalSpent = expenses
         .where((expense) => expense.category == budget.category)
         .fold(0.0, (sum, expense) => sum + expense.amount);
-    return totalSpent / budget.budgetLimit; // Updated field name
+    final progress = totalSpent / budget.budgetLimit;
+    final exceededBy =
+        (totalSpent - budget.budgetLimit) / budget.budgetLimit * 100;
+    return {
+      'progress': progress,
+      'exceededBy': exceededBy,
+    };
   }
 
   // Group expenses by category
@@ -116,7 +123,6 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.settings),
             onPressed: () => _navigateToBudgetSettingScreen(context),
           ),
-
           IconButton(
             icon: const Icon(Icons.repeat), // Recurring expense icon
             onPressed: () => _navigateToRecurringExpenseScreen(context),
@@ -132,14 +138,32 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           : ListView(
               children: [
-                // Display budgets with progress
+                // Display budgets with progress and over-spending percentage
                 ..._budgets.map((budget) {
-                  final progress = _calculateBudgetProgress(_expenses, budget);
+                  final progressData =
+                      _calculateBudgetProgress(_expenses, budget);
+                  final progress = progressData['progress'];
+                  final exceededBy = progressData['exceededBy'];
+
                   return Card(
                     margin: EdgeInsets.all(8.0),
                     child: ListTile(
                       title: Text(budget.category),
-                      subtitle: LinearProgressIndicator(value: progress),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          LinearProgressIndicator(value: progress),
+                          SizedBox(height: 4),
+                          Text(
+                            exceededBy > 0
+                                ? 'Over budget by ${exceededBy.toStringAsFixed(2)}%'
+                                : '${(progress * 100).toStringAsFixed(2)}% of budget used',
+                            style: TextStyle(
+                              color: exceededBy > 0 ? Colors.red : Colors.green,
+                            ),
+                          ),
+                        ],
+                      ),
                       trailing:
                           Text('\$${budget.budgetLimit.toStringAsFixed(2)}'),
                     ),

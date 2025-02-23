@@ -43,8 +43,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         title: _titleController.text,
         amount: double.parse(_amountController.text),
         date: DateTime.now(),
-        category: _selectedCategory ??
-            'Uncategorized', // Use selected category or default
+        category: _selectedCategory ?? 'Uncategorized',
       );
 
       await DatabaseService().insertExpense(newExpense);
@@ -53,7 +52,13 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       final isExceeded =
           await DatabaseService().isBudgetExceeded(newExpense.category);
       if (isExceeded) {
-        _showBudgetExceededNotification(newExpense.category);
+        final budget =
+            await DatabaseService().getBudgetForCategory(newExpense.category);
+        final totalSpent = await DatabaseService()
+            .getTotalSpendingForCategory(newExpense.category);
+        final exceededBy =
+            ((totalSpent - budget.budgetLimit) / budget.budgetLimit) * 100;
+        _showBudgetExceededNotification(newExpense.category, exceededBy);
       }
 
       setState(() {
@@ -68,14 +73,14 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     }
   }
 
-  void _showBudgetExceededNotification(String category) {
+  void _showBudgetExceededNotification(String category, double exceededBy) {
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
           title: Text('Budget Exceeded'),
-          content:
-              Text('You have exceeded your budget for the $category category.'),
+          content: Text(
+              'You have exceeded your budget for the $category category by ${exceededBy.toStringAsFixed(2)}%.'),
           actions: [
             TextButton(
               onPressed: () {
@@ -98,8 +103,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: _isLoading
-            ? Center(
-                child: CircularProgressIndicator()) // Show loading indicator
+            ? Center(child: CircularProgressIndicator())
             : Form(
                 key: _formKey,
                 child: Column(
