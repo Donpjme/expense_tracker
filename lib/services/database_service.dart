@@ -279,15 +279,16 @@ class DatabaseService {
     );
 
     if (budgets.isEmpty) {
-      print('No budget set for category: $category'); // Debug log
+      _logger.i(
+          'No budget set for category: $category'); // Use logger instead of print
       return false; // No budget set for this category
     }
 
     final budget = Budget.fromMap(budgets.first);
     final totalSpent = await getTotalSpendingForCategory(category);
 
-    print(
-        'Budget Limit: ${budget.budgetLimit}, Total Spent: $totalSpent'); // Debug log
+    _logger.i(
+        'Budget Limit: ${budget.budgetLimit}, Total Spent: $totalSpent'); // Use logger instead of print
 
     return totalSpent > budget.budgetLimit;
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/expense.dart';
 import '../models/category.dart'; // Import the Category model
 import '../services/database_service.dart';
+import 'package:logger/logger.dart'; // Import the logger package
 
 class AddExpenseScreen extends StatefulWidget {
   const AddExpenseScreen({super.key});
@@ -17,6 +18,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   String? _selectedCategory; // Track the selected category
   List<Category> _categories = [];
   bool _isLoading = false; // Track loading state
+  final Logger _logger = Logger(); // Initialize the logger
 
   @override
   void initState() {
@@ -51,7 +53,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       // Check if the budget is exceeded
       final isExceeded =
           await DatabaseService().isBudgetExceeded(newExpense.category);
-      print('Is budget exceeded? $isExceeded'); // Debug log
+      _logger
+          .i('Is budget exceeded? $isExceeded'); // Use logger instead of print
 
       if (isExceeded) {
         final budget =
@@ -60,8 +63,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             .getTotalSpendingForCategory(newExpense.category);
         final exceededBy =
             ((totalSpent - budget.budgetLimit) / budget.budgetLimit) * 100;
-        print(
-            'Budget Limit: ${budget.budgetLimit}, Total Spent: $totalSpent'); // Debug log
+        _logger.i(
+            'Budget Limit: ${budget.budgetLimit}, Total Spent: $totalSpent'); // Use logger instead of print
 
         // Show the notification dialog
         await _showBudgetExceededNotification(newExpense.category, exceededBy);
