@@ -195,6 +195,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         ],
                       ),
                     );
+                  // ignore: unnecessary_to_list_in_spreads
                   }).toList(),
                 ],
               );
