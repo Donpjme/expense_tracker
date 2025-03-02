@@ -1,8 +1,12 @@
 # Uncomment this line to define a global platform for your project
-# platform :ios, '12.0'
+platform :ios, '15.5'  # Update this line to at least 15.5 as required by google_mlkit_commons
+
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+# Fix for SDWebImage compatibility issue
+pod 'SDWebImage', '5.13.0', :modular_headers => true
 
 project 'Runner', {
   'Debug' => :debug,
@@ -15,7 +19,6 @@ def flutter_root
   unless File.exist?(generated_xcode_build_settings_path)
     raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
   end
-
   File.foreach(generated_xcode_build_settings_path) do |line|
     matches = line.match(/FLUTTER_ROOT\=(.*)/)
     return matches[1].strip if matches
@@ -24,21 +27,40 @@ def flutter_root
 end
 
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
-
 flutter_ios_podfile_setup
 
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
-
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
     inherit! :search_paths
   end
 end
 
+# IMPORTANT: Single post_install hook that contains all functionality
 post_install do |installer|
   installer.pods_project.targets.each do |target|
+    # Flutter-specific build settings
     flutter_additional_ios_build_settings(target)
+    
+    # Set deployment target for all pods
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.0'
+    end
+    
+    # Fix for SDWebImage issues
+    if target.name == 'SDWebImage'
+      target.build_phases.each do |build_phase|
+        if build_phase.is_a?(Xcodeproj::Project::Object::PBXSourcesBuildPhase)
+          build_phase.files.each do |file|
+            file.file_ref.path.match(/UIImage\+Metadata\.m/) do
+              patch_script = "sed -i '' 's/isHighDynamicRange/sd_isHighDynamicRange/g' \"${PODS_ROOT}/SDWebImage/SDWebImage/Core/UIImage+Metadata.m\""
+              system(patch_script)
+            end
+          end
+        end
+      end
+    end
   end
 end

@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:expense_tracker/services/database_service.dart';
 import 'package:expense_tracker/widgets/summary_card.dart';
 import 'package:expense_tracker/widgets/budget_progress_card.dart';
+import 'package:expense_tracker/widgets/analytics_dashboard_widget.dart';
+import 'package:expense_tracker/widgets/expense_insights_widget.dart';
 import 'package:expense_tracker/screens/add_expense_screen.dart';
+import 'package:expense_tracker/screens/reports_screen.dart';
 import 'package:expense_tracker/models/expense.dart';
 import 'package:expense_tracker/models/budget.dart';
 
@@ -127,6 +130,15 @@ class DashboardScreenState extends State<DashboardScreen> {
                           value: '\$${_totalSpentThisMonth.toStringAsFixed(2)}',
                           icon: Icons.account_balance_wallet,
                           color: Theme.of(context).colorScheme.primary,
+                          onTap: () {
+                            // Navigate to reports screen
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const ReportsScreen(),
+                              ),
+                            );
+                          },
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -143,6 +155,16 @@ class DashboardScreenState extends State<DashboardScreen> {
 
                   const SizedBox(height: 24),
 
+                  // Insights Widget - New
+                  if (_expenses.isNotEmpty)
+                    ExpenseInsightsWidget(
+                      expenses: _expenses,
+                      budgets: _budgets,
+                    ),
+
+                  if (_expenses.isNotEmpty) const SizedBox(height: 24),
+
+                  // Budget Progress Section
                   Text(
                     'Budget Progress',
                     style: Theme.of(context).textTheme.titleLarge,
@@ -151,25 +173,69 @@ class DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 8),
 
                   // Budget progress cards
-                  ...budgetByCategory.keys.map((category) {
-                    final budget = budgetByCategory[category] ?? 0;
-                    final spent = spendingByCategory[category] ?? 0;
-                    final color = categoryColors[category] ??
-                        Color((category.hashCode & 0xFFFFFF) | 0xFF000000);
+                  if (budgetByCategory.isNotEmpty)
+                    ...budgetByCategory.keys.map((category) {
+                      final budget = budgetByCategory[category] ?? 0;
+                      final spent = spendingByCategory[category] ?? 0;
+                      final color = categoryColors[category] ??
+                          Color((category.hashCode & 0xFFFFFF) | 0xFF000000);
 
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: BudgetProgressCard(
-                        category: category,
-                        budgetAmount: budget,
-                        spentAmount: spent,
-                        categoryColor: color,
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: BudgetProgressCard(
+                          category: category,
+                          budgetAmount: budget,
+                          spentAmount: spent,
+                          categoryColor: color,
+                        ),
+                      );
+                    })
+                  else
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          children: [
+                            const Text(
+                              'No budgets set',
+                              style: TextStyle(
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            ElevatedButton(
+                              onPressed: () {
+                                // Navigate to budget setting screen
+                                Navigator.of(context)
+                                    .pushNamed('/budget_setting');
+                              },
+                              child: const Text('Set Your First Budget'),
+                            ),
+                          ],
+                        ),
                       ),
-                    );
-                  }),
+                    ),
 
                   const SizedBox(height: 24),
 
+                  // Analytics Dashboard Widget - New
+                  if (_expenses.isNotEmpty)
+                    AnalyticsDashboardWidget(
+                      expenses: _expenses,
+                      budgets: _budgets,
+                      onSeeMorePressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const ReportsScreen(),
+                          ),
+                        );
+                      },
+                    ),
+
+                  if (_expenses.isNotEmpty) const SizedBox(height: 24),
+
+                  // Recent Expenses Section
                   Text(
                     'Recent Expenses',
                     style: Theme.of(context).textTheme.titleLarge,
@@ -178,37 +244,37 @@ class DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 8),
 
                   // Recent expenses list
-                  ..._expenses.take(5).map((expense) {
-                    final color = categoryColors[expense.category] ??
-                        Color((expense.category.hashCode & 0xFFFFFF) |
-                            0xFF000000);
+                  if (_expenses.isNotEmpty)
+                    ..._expenses.take(5).map((expense) {
+                      final color = categoryColors[expense.category] ??
+                          Color((expense.category.hashCode & 0xFFFFFF) |
+                              0xFF000000);
 
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: color,
-                          child: Text(
-                            expense.category[0],
-                            style: const TextStyle(color: Colors.white),
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: color,
+                            child: Text(
+                              expense.category[0],
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                          ),
+                          title: Text(expense.title),
+                          subtitle: Text(
+                            '${expense.category} • ${_formatDate(expense.date)}',
+                          ),
+                          trailing: Text(
+                            '\$${expense.amount.toStringAsFixed(2)}',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: expense.amount > 100 ? Colors.red : null,
+                            ),
                           ),
                         ),
-                        title: Text(expense.title),
-                        subtitle: Text(
-                          '${expense.category} • ${_formatDate(expense.date)}',
-                        ),
-                        trailing: Text(
-                          '\$${expense.amount.toStringAsFixed(2)}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: expense.amount > 100 ? Colors.red : null,
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-
-                  if (_expenses.isEmpty)
+                      );
+                    })
+                  else
                     Center(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: 32),

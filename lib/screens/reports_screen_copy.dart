@@ -1,13 +1,11 @@
+// ignore: file_names
+// ignore: file_names
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../models/expense.dart';
 import '../services/database_service.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:csv/csv.dart';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -24,10 +22,10 @@ class ReportsScreenState extends State<ReportsScreen>
   String? _selectedCategory;
   String _selectedPeriod = 'month'; // 'week', 'month', 'year', 'all'
   // ignore: unused_field
-  bool _isExporting = false; // Removed final
+  final bool _isExporting = false;
   bool _isLoading = true;
-  // ignore: unused_field, prefer_final_fields
-  String _logMessages = ''; // Removed final
+  // ignore: unused_field
+  final String _logMessages = '';
 
   // Tab controller for switching between different chart views
   late TabController _tabController;
@@ -286,87 +284,6 @@ class ReportsScreenState extends State<ReportsScreen>
     }).toList();
   }
 
-  // Export expenses as PDF
-  Future<void> _exportAsPDF() async {
-    setState(() {
-      _isExporting = true;
-    });
-
-    final pdf = pw.Document();
-
-    // Add a page to the PDF
-    pdf.addPage(
-      pw.Page(
-        build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text('Expense Report', style: pw.TextStyle(fontSize: 24)),
-              pw.SizedBox(height: 20),
-              pw.Text(
-                  'Total Expenses: \$${_calculateTotalSpending(_filteredExpenses).toStringAsFixed(2)}'),
-              pw.SizedBox(height: 20),
-              pw.Text('Expenses by Category:'),
-              ..._calculateSpendingByCategory(_filteredExpenses)
-                  .entries
-                  .map((entry) {
-                return pw.Text(
-                    '${entry.key}: \$${entry.value.toStringAsFixed(2)}');
-              // ignore: unnecessary_to_list_in_spreads
-              }).toList(),
-            ],
-          );
-        },
-      ),
-    );
-
-    // Save the PDF to a file
-    final output = await getTemporaryDirectory();
-    final file = File('${output.path}/expense_report.pdf');
-    await file.writeAsBytes(await pdf.save());
-
-    // Share the PDF file
-    await Share.shareXFiles([XFile(file.path)], text: 'Expense Report');
-
-    setState(() {
-      _isExporting = false;
-    });
-  }
-
-  // Export expenses as CSV
-  Future<void> _exportAsCSV() async {
-    setState(() {
-      _isExporting = true;
-    });
-
-    // Convert expenses to CSV format
-    final List<List<dynamic>> csvData = [];
-    csvData.add(['Title', 'Category', 'Amount', 'Date']); // Header row
-    for (final expense in _filteredExpenses) {
-      csvData.add([
-        expense.title,
-        expense.category,
-        expense.amount,
-        DateFormat('yyyy-MM-dd').format(expense.date),
-      ]);
-    }
-
-    // Convert to CSV string
-    final String csv = const ListToCsvConverter().convert(csvData);
-
-    // Save the CSV to a file
-    final output = await getTemporaryDirectory();
-    final file = File('${output.path}/expense_report.csv');
-    await file.writeAsString(csv);
-
-    // Share the CSV file
-    await Share.shareXFiles([XFile(file.path)], text: 'Expense Report');
-
-    setState(() {
-      _isExporting = false;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     // Get list of all categories for filter
@@ -397,14 +314,14 @@ class ReportsScreenState extends State<ReportsScreen>
             itemBuilder: (context) => [
               PopupMenuItem(
                 child: const Text('Export as PDF'),
-                onTap: () async {
-                  await _exportAsPDF(); // Call the PDF export function
+                onTap: () {
+                  // Placeholder for PDF export function
                 },
               ),
               PopupMenuItem(
                 child: const Text('Export as CSV'),
-                onTap: () async {
-                  await _exportAsCSV(); // Call the CSV export function
+                onTap: () {
+                  // Placeholder for CSV export function
                 },
               ),
             ],

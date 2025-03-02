@@ -96,11 +96,8 @@ class _ReceiptScannerScreenState extends State<ReceiptScannerScreen> {
     // Crop the image
     final croppedFile = await ImageCropper().cropImage(
       sourcePath: imageFile.path,
-      aspectRatioPresets: [
-        CropAspectRatioPreset.original,
-        CropAspectRatioPreset.ratio3x2,
-        CropAspectRatioPreset.ratio4x3,
-      ],
+      aspectRatio:
+          CropAspectRatio(ratioX: 3, ratioY: 2), // Example aspect ratio (3:2)
       uiSettings: [
         AndroidUiSettings(
           toolbarTitle: 'Crop Receipt',
