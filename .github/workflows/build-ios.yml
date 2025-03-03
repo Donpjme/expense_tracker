@@ -1,1 +1,35 @@
 
+name: Build iOS App
+
+on:
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: '2.7'
+        
+    - name: Install dependencies
+      run: |
+        gem install xcpretty
+        
+    - name: Build iOS app
+      run: |
+        xcodebuild clean archive -project YourProject.xcodeproj -scheme YourScheme -configuration Release -archivePath $GITHUB_WORKSPACE/build/YourApp.xcarchive CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+        
+    - name: Export IPA
+      run: |
+        xcodebuild -exportArchive -archivePath $GITHUB_WORKSPACE/build/YourApp.xcarchive -exportOptionsPlist exportOptions.plist -exportPath $GITHUB_WORKSPACE/build
+        
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: YourAppIPA
+        path: $GITHUB_WORKSPACE/build/*.ipa
