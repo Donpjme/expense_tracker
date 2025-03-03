@@ -1,0 +1,62 @@
+name: expense_tracker
+description: "A comprehensive expense tracking application for students."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.1.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Core database and storage
+  sqflite: ^2.3.0
+  sqflite_common_ffi: ^2.3.0
+  sqflite_common_ffi_web: ^1.0.0  # Downgraded version as suggested
+  path: ^1.8.3
+  path_provider: ^2.1.1
+  flutter_secure_storage: ^9.0.0
+
+  # State management and theming
+  provider: ^6.1.1
+  dynamic_color: ^1.7.0
+  shared_preferences: ^2.1.0
+
+  # Charts and data visualization
+  fl_chart: ^0.70.2
+
+  # Logging and utilities
+  logger: ^2.2.0
+  intl: ^0.19.0
+
+  # Document processing
+  pdf: ^3.10.7
+  csv: ^6.0.0
+
+  # File and sharing
+  file_picker: ^9.0.2
+  share_plus: ^10.1.4
+
+  # Authentication and security
+  local_auth: ^2.2.0
+  crypto: ^3.0.3
+  permission_handler: ^11.1.0
+
+  # Image processing
+  camera: ^0.11.1
+  image_picker: ^1.0.7
+  image_cropper: 
+  google_mlkit_text_recognition: ^0.14.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/fonts/Roboto-Regular.ttf
+    - assets/fonts/Roboto-Bold.ttf
