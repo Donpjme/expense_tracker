@@ -6,13 +6,15 @@ import 'package:expense_tracker/screens/expenses_list_screen.dart';
 import 'package:expense_tracker/screens/budget_setting_screen.dart';
 import 'package:expense_tracker/screens/reports_screen.dart';
 import 'package:expense_tracker/screens/add_expense_screen.dart';
-import 'package:expense_tracker/services/local_auth_service.dart';
-import 'package:logger/logger.dart';
+import 'package:expense_tracker/screens/recurring_expense_screen.dart';
+import 'package:expense_tracker/screens/recurring_budget_screen.dart';
+import 'package:expense_tracker/screens/recurring_items_screen.dart';
 
 class HomeScreen extends StatefulWidget {
+  // Auth parameters
   final bool isAuthenticated;
-  final Function() onAuthenticationNeeded;
-  final Function() onLogout;
+  final VoidCallback onAuthenticationNeeded;
+  final VoidCallback onLogout;
 
   const HomeScreen({
     required this.isAuthenticated,
@@ -27,199 +29,113 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
-  bool _isAuthenticatedLocally;
-  final LocalAuthService _authService = LocalAuthService();
-  final Logger _logger = Logger();
+
+  // Screen pages
+  late List<Widget> _screens;
 
   // Keys to access screen states
   final GlobalKey<DashboardScreenState> _dashboardKey =
       GlobalKey<DashboardScreenState>();
 
-  _HomeScreenState() : _isAuthenticatedLocally = false;
-
   @override
   void initState() {
     super.initState();
-    _isAuthenticatedLocally = widget.isAuthenticated;
-    _logger
-        .i("HomeScreen initialized, authenticated: $_isAuthenticatedLocally");
 
-    // If not authenticated, request authentication immediately
-    if (!_isAuthenticatedLocally) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _logger.i("Requesting authentication after init");
-        _checkAuthentication();
-      });
-    }
+    // Check authentication immediately
+    _checkAuthentication();
+
+    // Initialize screens
+    _initializeScreens();
   }
 
-  @override
-  void didUpdateWidget(HomeScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    // Update local authentication state when widget property changes
-    if (widget.isAuthenticated != oldWidget.isAuthenticated) {
-      _logger.i(
-          "HomeScreen authentication state updated from ${oldWidget.isAuthenticated} to ${widget.isAuthenticated}");
-      setState(() {
-        _isAuthenticatedLocally = widget.isAuthenticated;
-      });
-
-      // If authentication changed to false, prompt for authentication
-      if (!_isAuthenticatedLocally) {
-        _checkAuthentication();
-      }
-    }
-  }
-
-  // Check authentication and request if needed
   void _checkAuthentication() {
-    _logger
-        .i("Checking authentication, current state: $_isAuthenticatedLocally");
-    if (!_isAuthenticatedLocally) {
-      _logger.i("Not authenticated, requesting authentication");
+    if (!widget.isAuthenticated) {
+      // If not authenticated, request authentication
       widget.onAuthenticationNeeded();
     }
   }
 
+  void _initializeScreens() {
+    _screens = [
+      DashboardScreen(key: _dashboardKey),
+      const ExpensesListScreen(),
+      BudgetSettingScreen(onBudgetAdded: _refreshData),
+      const ReportsScreen(),
+    ];
+  }
+
   // Function to refresh data
   void _refreshData() {
-    _logger.i("Refreshing data");
     if (_dashboardKey.currentState != null) {
       _dashboardKey.currentState!.loadData();
     }
 
+    // You can add more refresh calls for other screens if needed
     setState(() {
       // This forces the current screen to rebuild
     });
   }
 
-  // Handle logout
-  Future<void> _handleLogout() async {
-    _logger.i("Logout requested");
-    final bool confirm = await showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Confirm Logout'),
-            content: const Text(
-                'Are you sure you want to log out? You will need to enter your PIN to access your data again.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.red,
-                ),
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Logout'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-
-    if (confirm) {
-      _logger.i("Logout confirmed, logging out");
-      await _authService.logOut();
-      setState(() {
-        _isAuthenticatedLocally = false;
-      });
-      widget.onLogout();
-    } else {
-      _logger.i("Logout cancelled");
-    }
-  }
-
-  // Get the appropriate screens based on authentication status
-  List<Widget> _getScreens() {
-    if (_isAuthenticatedLocally) {
-      _logger.i("Getting authenticated screens");
-      return [
-        DashboardScreen(key: _dashboardKey),
-        const ExpensesListScreen(),
-        BudgetSettingScreen(onBudgetAdded: _refreshData),
-        const ReportsScreen(),
-      ];
-    } else {
-      _logger.i("Getting locked screens");
-      // Show placeholder screens with lock overlays if not authenticated
-      return [
-        _buildLockedScreen(
-          icon: Icons.dashboard_outlined,
-          message: 'Dashboard is locked',
-        ),
-        _buildLockedScreen(
-          icon: Icons.list_outlined,
-          message: 'Expenses are locked',
-        ),
-        _buildLockedScreen(
-          icon: Icons.account_balance_wallet_outlined,
-          message: 'Budget settings are locked',
-        ),
-        _buildLockedScreen(
-          icon: Icons.bar_chart_outlined,
-          message: 'Reports are locked',
-        ),
-      ];
-    }
-  }
-
-  // Build a locked screen placeholder
-  Widget _buildLockedScreen({
-    required IconData icon,
-    required String message,
-  }) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.lock,
-            size: 64,
-            color: Colors.grey,
-          ),
-          const SizedBox(height: 16),
-          Icon(
-            icon,
-            size: 48,
-            color: Colors.grey.withOpacity(0.7),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            message,
-            style: const TextStyle(
-              fontSize: 18,
-              color: Colors.grey,
-            ),
-          ),
-          const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: () {
-              _logger.i("Unlock button pressed, requesting authentication");
-              widget.onAuthenticationNeeded();
-            },
-            icon: const Icon(Icons.lock_open),
-            label: const Text('Unlock'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final screens = _getScreens();
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Expense Tracker'),
         actions: [
+          // Add a popup menu for recurring items
+          PopupMenuButton(
+            tooltip: 'Recurring items',
+            icon: const Icon(Icons.repeat),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                child: const Text('Recurring Expenses'),
+                onTap: () {
+                  // We need to use Future.delayed because popupMenuButton
+                  // closes the menu before executing onTap
+                  Future.delayed(Duration.zero, () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const RecurringExpenseScreen(),
+                      ),
+                    ).then((_) => _refreshData());
+                  });
+                },
+              ),
+              PopupMenuItem(
+                child: const Text('Recurring Budgets'),
+                onTap: () {
+                  Future.delayed(Duration.zero, () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => RecurringBudgetScreen(
+                          onBudgetAdded: _refreshData,
+                        ),
+                      ),
+                    );
+                  });
+                },
+              ),
+              PopupMenuItem(
+                child: const Text('Manage Recurring Items'),
+                onTap: () {
+                  Future.delayed(Duration.zero, () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const RecurringItemsScreen(),
+                      ),
+                    ).then((_) => _refreshData());
+                  });
+                },
+              ),
+            ],
+          ),
           // Refresh button
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _isAuthenticatedLocally ? _refreshData : null,
+            onPressed: _refreshData,
             tooltip: 'Refresh data',
           ),
           // Theme toggle button
@@ -238,26 +154,18 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
-          // Logout button with clear icon
+          // Logout button
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: _handleLogout,
+            onPressed: widget.onLogout,
             tooltip: 'Logout',
           ),
         ],
       ),
-      body: screens[_currentIndex],
+      body: _screens[_currentIndex],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
-          // If not authenticated and trying to change tabs, request authentication
-          if (!_isAuthenticatedLocally) {
-            _logger.i(
-                "Tab change attempted while locked, requesting authentication");
-            widget.onAuthenticationNeeded();
-            return;
-          }
-
           setState(() {
             _currentIndex = index;
           });
@@ -283,23 +191,19 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _isAuthenticatedLocally
-            ? () async {
-                // Navigate to add expense screen and wait for result
-                final result = await Navigator.of(context).push(
-                  MaterialPageRoute(builder: (ctx) => const AddExpenseScreen()),
-                );
+        // Add a unique hero tag to avoid conflict
+        heroTag: 'home_screen_fab',
+        onPressed: () async {
+          // Navigate to add expense screen and wait for result
+          final result = await Navigator.of(context).push(
+            MaterialPageRoute(builder: (ctx) => const AddExpenseScreen()),
+          );
 
-                // If result is true (expense was added), refresh data
-                if (result == true) {
-                  _refreshData();
-                }
-              }
-            : () {
-                _logger.i(
-                    "Add expense button pressed while locked, requesting authentication");
-                widget.onAuthenticationNeeded();
-              },
+          // If result is true (expense was added), refresh data
+          if (result == true) {
+            _refreshData();
+          }
+        },
         tooltip: 'Add expense',
         child: const Icon(Icons.add),
       ),

@@ -4,8 +4,11 @@ import 'package:expense_tracker/widgets/summary_card.dart';
 import 'package:expense_tracker/widgets/budget_progress_card.dart';
 import 'package:expense_tracker/widgets/analytics_dashboard_widget.dart';
 import 'package:expense_tracker/widgets/expense_insights_widget.dart';
+import 'package:expense_tracker/widgets/quick_action_panel.dart';
 import 'package:expense_tracker/screens/add_expense_screen.dart';
 import 'package:expense_tracker/screens/reports_screen.dart';
+import 'package:expense_tracker/screens/recurring_items_screen.dart';
+import 'package:expense_tracker/screens/budget_setting_screen.dart'; // Make sure this import is included
 import 'package:expense_tracker/models/expense.dart';
 import 'package:expense_tracker/models/budget.dart';
 
@@ -121,6 +124,70 @@ class DashboardScreenState extends State<DashboardScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  // QuickActionPanel for easily accessing core features
+                  QuickActionPanel(
+                    onActionCompleted: loadData,
+                  ),
+
+                  // Add a "Manage Recurring Items" card
+                  Card(
+                    elevation: 1,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const RecurringItemsScreen(),
+                          ),
+                        ).then((_) => loadData());
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: Theme.of(context)
+                                  .colorScheme
+                                  .primaryContainer,
+                              child: Icon(
+                                Icons.schedule,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Recurring Items',
+                                    style:
+                                        Theme.of(context).textTheme.titleMedium,
+                                  ),
+                                  Text(
+                                    'Manage your recurring expenses and budgets',
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Icons.chevron_right,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
                   // Monthly summary cards
                   Row(
                     children: [
@@ -205,9 +272,14 @@ class DashboardScreenState extends State<DashboardScreen> {
                             const SizedBox(height: 8),
                             ElevatedButton(
                               onPressed: () {
-                                // Navigate to budget setting screen
-                                Navigator.of(context)
-                                    .pushNamed('/budget_setting');
+                                // Navigate to budget setting screen - use the imported widget correctly
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) => BudgetSettingScreen(
+                                      onBudgetAdded: loadData,
+                                    ),
+                                  ),
+                                );
                               },
                               child: const Text('Set Your First Budget'),
                             ),
@@ -280,7 +352,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 32),
                         child: Column(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.receipt_long_outlined,
                               size: 48,
                               color: Colors.grey,
@@ -317,6 +389,22 @@ class DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
             ),
+      // Add a floating action button with a unique hero tag if needed
+      floatingActionButton: _expenses.isEmpty
+          ? FloatingActionButton(
+              // Add a unique hero tag
+              heroTag: 'dashboard_fab',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const AddExpenseScreen()),
+                ).then((_) => loadData());
+              },
+              tooltip: 'Add expense',
+              child: const Icon(Icons.add),
+            )
+          : null,
     );
   }
 

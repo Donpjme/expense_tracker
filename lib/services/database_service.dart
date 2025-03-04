@@ -1,7 +1,14 @@
 import 'dart:io' show Platform, Directory;
-import 'package:sqflite/sqflite.dart' as sqflite;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart'
-    show databaseFactoryFfi, sqfliteFfiInit;
+    show
+        Database,
+        databaseFactory,
+        databaseFactoryFfi,
+        getDatabasesPath,
+        openDatabase,
+        sqfliteFfiInit;
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:logger/logger.dart';
@@ -13,7 +20,7 @@ import '../models/recurring_expense.dart';
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
   factory DatabaseService() => _instance;
-  static sqflite.Database? _database;
+  static Database? _database;
   final Logger _logger = Logger();
 
   // Increment the database version
@@ -21,23 +28,21 @@ class DatabaseService {
 
   DatabaseService._internal();
 
-  Future<sqflite.Database> get database async {
+  Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
 
-  Future<sqflite.Database> _initDatabase() async {
+  Future<Database> _initDatabase() async {
     try {
-      // Initialize the appropriate database factory based on platform
-      if (Platform.isAndroid || Platform.isIOS) {
-        // Use regular sqflite for mobile platforms
-        _logger.i('Using regular sqflite on mobile platform');
-      } else {
-        // Initialize sqflite_ffi for desktop platforms
-        _logger.i('Using sqflite_ffi on non-mobile platform');
+      // Initialize sqflite_ffi for non-web platforms
+      if (!kIsWeb) {
         sqfliteFfiInit();
-        sqflite.databaseFactory = databaseFactoryFfi;
+        databaseFactory = databaseFactoryFfi;
+      } else {
+        // Initialize sqflite_ffi_web for web platforms
+        databaseFactory = databaseFactoryFfiWeb;
       }
 
       // Get the database path
@@ -53,7 +58,7 @@ class DatabaseService {
       }
 
       // Open or create the database
-      final db = await sqflite.openDatabase(
+      final db = await openDatabase(
         path,
         version: _databaseVersion,
         onCreate: _createDb,
@@ -64,7 +69,7 @@ class DatabaseService {
       return db;
     } catch (e) {
       _logger.e('Failed to initialize database: $e');
-      rethrow;
+      rethrow; // Rethrow the exception to handle it in the calling code
     }
   }
 
@@ -75,11 +80,11 @@ class DatabaseService {
       return appDocumentsDir.path;
     } else {
       // Use the default database path for other platforms
-      return await sqflite.getDatabasesPath();
+      return await getDatabasesPath();
     }
   }
 
-  Future<void> _createDb(sqflite.Database db, int version) async {
+  Future<void> _createDb(Database db, int version) async {
     try {
       // Create expenses table
       await db.execute('''
@@ -120,7 +125,8 @@ class DatabaseService {
           category TEXT,
           startDate TEXT,
           nextDate TEXT,
-          frequency TEXT
+          frequency TEXT,
+          description TEXT
         )
       ''');
 
@@ -143,8 +149,7 @@ class DatabaseService {
   }
 
   // Handle database upgrades
-  Future<void> _upgradeDb(
-      sqflite.Database db, int oldVersion, int newVersion) async {
+  Future<void> _upgradeDb(Database db, int oldVersion, int newVersion) async {
     try {
       _logger.i('Upgrading database from version $oldVersion to $newVersion');
 
@@ -164,6 +169,19 @@ class DatabaseService {
           CREATE TABLE IF NOT EXISTS categories(
             id TEXT PRIMARY KEY,
             name TEXT
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS recurring_expenses(
+            id TEXT PRIMARY KEY,
+            title TEXT,
+            amount REAL,
+            category TEXT,
+            startDate TEXT,
+            nextDate TEXT,
+            frequency TEXT,
+            description TEXT
           )
         ''');
 
@@ -203,6 +221,17 @@ class DatabaseService {
     });
   }
 
+  // Update an expense in the database
+  Future<int> updateExpense(Expense expense) async {
+    final db = await database;
+    return await db.update(
+      'expenses',
+      expense.toMap(),
+      where: 'id = ?',
+      whereArgs: [expense.id],
+    );
+  }
+
   // Insert a budget into the database
   Future<void> insertBudget(Budget budget) async {
     final db = await database;
@@ -216,6 +245,17 @@ class DatabaseService {
     return List.generate(maps.length, (i) {
       return Budget.fromMap(maps[i]);
     });
+  }
+
+  // Update a budget in the database
+  Future<int> updateBudget(Budget budget) async {
+    final db = await database;
+    return await db.update(
+      'budgets',
+      budget.toMap(),
+      where: 'id = ?',
+      whereArgs: [budget.id],
+    );
   }
 
   // Insert a category into the database
@@ -247,6 +287,17 @@ class DatabaseService {
     return List.generate(maps.length, (i) {
       return RecurringExpense.fromMap(maps[i]);
     });
+  }
+
+  // Update a recurring expense in the database
+  Future<int> updateRecurringExpense(RecurringExpense recurringExpense) async {
+    final db = await database;
+    return await db.update(
+      'recurring_expenses',
+      recurringExpense.toMap(),
+      where: 'id = ?',
+      whereArgs: [recurringExpense.id],
+    );
   }
 
   // Calculate total spending for a specific category
@@ -311,24 +362,25 @@ class DatabaseService {
     final recurringExpenses = await getRecurringExpenses();
 
     for (final recurringExpense in recurringExpenses) {
-      if (recurringExpense.nextDate.isBefore(now) ||
-          recurringExpense.nextDate.isAtSameMomentAs(now)) {
+      final nextDate = DateTime.parse(recurringExpense.nextDate);
+
+      if (nextDate.isBefore(now) || nextDate.isAtSameMomentAs(now)) {
         // Add the recurring expense to the expenses table
         final newExpense = Expense(
           id: DateTime.now().toString(),
           title: recurringExpense.title,
           amount: recurringExpense.amount,
-          date: recurringExpense.nextDate,
+          date: nextDate,
           category: recurringExpense.category,
         );
         await insertExpense(newExpense);
 
         // Update the nextDate for the recurring expense
-        final nextDate = _calculateNextDate(
-            recurringExpense.nextDate, recurringExpense.frequency);
+        final newNextDate =
+            _calculateNextDate(nextDate, recurringExpense.frequency);
         await db.update(
           'recurring_expenses',
-          {'nextDate': nextDate.toIso8601String()},
+          {'nextDate': newNextDate.toIso8601String()},
           where: 'id = ?',
           whereArgs: [recurringExpense.id],
         );
@@ -339,56 +391,20 @@ class DatabaseService {
   DateTime _calculateNextDate(DateTime currentDate, String frequency) {
     switch (frequency) {
       case 'Daily':
-        return currentDate.add(Duration(days: 1));
+        return currentDate.add(const Duration(days: 1));
       case 'Weekly':
-        return currentDate.add(Duration(days: 7));
+        return currentDate.add(const Duration(days: 7));
       case 'Monthly':
         return DateTime(
             currentDate.year, currentDate.month + 1, currentDate.day);
+      case 'Quarterly':
+        return DateTime(
+            currentDate.year, currentDate.month + 3, currentDate.day);
+      case 'Yearly':
+        return DateTime(
+            currentDate.year + 1, currentDate.month, currentDate.day);
       default:
         return currentDate;
     }
-  }
-
-  // Delete an expense from the database
-  Future<void> deleteExpense(String id) async {
-    final db = await database;
-    await db.delete(
-      'expenses',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
-  // Delete a budget from the database
-  Future<void> deleteBudget(String id) async {
-    final db = await database;
-    await db.delete(
-      'budgets',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-  }
-
-  // Update an expense in the database
-  Future<void> updateExpense(Expense expense) async {
-    final db = await database;
-    await db.update(
-      'expenses',
-      expense.toMap(),
-      where: 'id = ?',
-      whereArgs: [expense.id],
-    );
-  }
-
-  // Update a budget in the database
-  Future<void> updateBudget(Budget budget) async {
-    final db = await database;
-    await db.update(
-      'budgets',
-      budget.toMap(),
-      where: 'id = ?',
-      whereArgs: [budget.id],
-    );
   }
 }

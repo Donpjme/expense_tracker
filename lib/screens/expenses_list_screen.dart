@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:expense_tracker/models/expense.dart';
 import 'package:expense_tracker/services/database_service.dart';
+import 'package:expense_tracker/screens/edit_expense_screen.dart';
+import 'package:expense_tracker/screens/add_expense_screen.dart';
 
 class ExpensesListScreen extends StatefulWidget {
   const ExpensesListScreen({super.key});
@@ -29,6 +31,8 @@ class _ExpensesListScreenState extends State<ExpensesListScreen> {
       if (mounted) {
         setState(() {
           _expenses = expenses;
+          // Sort expenses by date (most recent first)
+          _expenses.sort((a, b) => b.date.compareTo(a.date));
           _isLoading = false;
         });
       }
@@ -60,9 +64,90 @@ class _ExpensesListScreenState extends State<ExpensesListScreen> {
     }
   }
 
+  void _editExpense(Expense expense) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EditExpenseScreen(expense: expense),
+      ),
+    );
+
+    // If result is true (expense was updated), refresh data
+    if (result == true) {
+      _loadExpenses();
+    }
+  }
+
+  Future<void> _deleteExpense(Expense expense, int index) async {
+    bool confirmDelete = await showDialog(
+          context: context,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              title: const Text('Confirm Deletion'),
+              content:
+                  const Text('Are you sure you want to delete this expense?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Delete'),
+                ),
+              ],
+            );
+          },
+        ) ??
+        false;
+
+    if (!confirmDelete) return;
+
+    try {
+      // Delete the expense from the database
+      final db = await DatabaseService().database;
+      await db.delete(
+        'expenses',
+        where: 'id = ?',
+        whereArgs: [expense.id],
+      );
+
+      // Update the UI
+      setState(() {
+        _expenses.removeAt(index);
+      });
+
+      // Show snackbar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Expense deleted'),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () async {
+                // Undo the deletion
+                await DatabaseService().insertExpense(expense);
+                await _loadExpenses();
+              },
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete expense: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('Expenses'),
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
@@ -72,7 +157,7 @@ class _ExpensesListScreenState extends State<ExpensesListScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.receipt_long_outlined,
                             size: 64,
                             color: Colors.grey,
@@ -90,8 +175,13 @@ class _ExpensesListScreenState extends State<ExpensesListScreen> {
                           const SizedBox(height: 16),
                           ElevatedButton(
                             onPressed: () {
-                              // Navigate to add expense screen
-                              Navigator.pushNamed(context, '/add_expense');
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const AddExpenseScreen(),
+                                ),
+                              ).then((_) => _loadExpenses());
                             },
                             child: const Text('Add Your First Expense'),
                           ),
@@ -103,99 +193,59 @@ class _ExpensesListScreenState extends State<ExpensesListScreen> {
                       itemCount: _expenses.length,
                       itemBuilder: (context, index) {
                         final expense = _expenses[index];
-                        return Dismissible(
-                          key: Key(expense.id),
-                          background: Container(
-                            color: Colors.red,
-                            alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.only(right: 16),
-                            child: const Icon(
-                              Icons.delete,
-                              color: Colors.white,
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: ListTile(
+                            title: Text(
+                              expense.title,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold),
                             ),
-                          ),
-                          direction: DismissDirection.endToStart,
-                          confirmDismiss: (direction) async {
-                            return await showDialog(
-                              context: context,
-                              builder: (BuildContext context) {
-                                return AlertDialog(
-                                  title: const Text('Confirm Deletion'),
-                                  content: const Text(
-                                      'Are you sure you want to delete this expense?'),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.of(context).pop(false),
-                                      child: const Text('Cancel'),
-                                    ),
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.of(context).pop(true),
-                                      child: const Text('Delete'),
-                                    ),
-                                  ],
-                                );
-                              },
-                            );
-                          },
-                          onDismissed: (direction) {
-                            // Delete the expense from the database
-                            // DatabaseService().deleteExpense(expense.id);
-
-                            // Update the UI
-                            setState(() {
-                              _expenses.removeAt(index);
-                            });
-
-                            // Show snackbar
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: const Text('Expense deleted'),
-                                action: SnackBarAction(
-                                  label: 'Undo',
-                                  onPressed: () {
-                                    // Undo the deletion
-                                    // DatabaseService().insertExpense(expense);
-                                    setState(() {
-                                      _expenses.insert(index, expense);
-                                    });
-                                  },
+                            subtitle: Text(
+                              '${expense.category} • ${_formatDate(expense.date)}',
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '\$${expense.amount.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
-                          child: Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            child: ListTile(
-                              title: Text(
-                                expense.title,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold),
-                              ),
-                              subtitle: Text(
-                                '${expense.category} • ${_formatDate(expense.date)}',
-                              ),
-                              trailing: Text(
-                                '\$${expense.amount.toStringAsFixed(2)}',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                  color: expense.amount > 100
-                                      ? Colors.red
-                                      : Colors.green,
+                                IconButton(
+                                  icon: const Icon(Icons.edit),
+                                  onPressed: () => _editExpense(expense),
+                                  tooltip: 'Edit',
                                 ),
-                              ),
-                              onTap: () {
-                                // Navigate to expense details screen
-                                // Navigator.pushNamed(context, '/expense_details', arguments: expense);
-                              },
+                                IconButton(
+                                  icon: const Icon(Icons.delete,
+                                      color: Colors.red),
+                                  onPressed: () =>
+                                      _deleteExpense(expense, index),
+                                  tooltip: 'Delete',
+                                ),
+                              ],
                             ),
                           ),
                         );
                       },
                     ),
             ),
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'expenses_list_fab',
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const AddExpenseScreen()),
+          ).then((_) {
+            _loadExpenses();
+          });
+        },
+        tooltip: 'Add expense',
+        child: const Icon(Icons.add),
+      ),
     );
   }
 }

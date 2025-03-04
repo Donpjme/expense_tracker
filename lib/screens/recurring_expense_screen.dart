@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import '../models/recurring_expense.dart';
-import '../models/category.dart'; // Import the Category model
+import '../models/category.dart';
 import '../services/database_service.dart';
 
 class RecurringExpenseScreen extends StatefulWidget {
   const RecurringExpenseScreen({super.key});
 
   @override
-  _RecurringExpenseScreenState createState() => _RecurringExpenseScreenState();
+  RecurringExpenseScreenState createState() => RecurringExpenseScreenState();
 }
 
-class _RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
+class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _amountController = TextEditingController();
@@ -46,8 +46,9 @@ class _RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
         title: _titleController.text,
         amount: double.parse(_amountController.text),
         category: _selectedCategory!, // Use the selected category
-        startDate: _startDate,
-        nextDate: _calculateNextDate(_startDate, _selectedFrequency!),
+        startDate: _startDate.toIso8601String(), // Convert to ISO8601 string
+        nextDate: _calculateNextDate(_startDate, _selectedFrequency!)
+            .toIso8601String(), // Convert to ISO8601 string
         frequency: _selectedFrequency!,
       );
 
@@ -94,89 +95,111 @@ class _RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Form(
           key: _formKey,
-          child: Column(
-            children: [
-              TextFormField(
-                controller: _titleController,
-                decoration: const InputDecoration(labelText: 'Title'),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter a title';
-                  }
-                  return null;
-                },
-              ),
-              TextFormField(
-                controller: _amountController,
-                decoration: const InputDecoration(labelText: 'Amount'),
-                keyboardType: TextInputType.number,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter an amount';
-                  }
-                  if (double.tryParse(value) == null) {
-                    return 'Please enter a valid number';
-                  }
-                  return null;
-                },
-              ),
-              DropdownButtonFormField<String>(
-                value: _selectedCategory,
-                hint: const Text('Select Category'),
-                items: _categories.map((category) {
-                  return DropdownMenuItem(
-                    value: category.name,
-                    child: Text(category.name),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedCategory = value;
-                  });
-                },
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please select a category';
-                  }
-                  return null;
-                },
-              ),
-              DropdownButtonFormField<String>(
-                value: _selectedFrequency,
-                hint: const Text('Select Frequency'),
-                items: _frequencies.map((frequency) {
-                  return DropdownMenuItem(
-                    value: frequency,
-                    child: Text(frequency),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedFrequency = value;
-                  });
-                },
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please select a frequency';
-                  }
-                  return null;
-                },
-              ),
-              ListTile(
-                title: Text(
-                    'Start Date: ${_startDate.toLocal().toString().split(' ')[0]}'),
-                trailing: const Icon(Icons.calendar_today),
-                onTap: () => _selectStartDate(context),
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _saveRecurringExpense,
-                child: const Text('Save Recurring Expense'),
-              ),
-            ],
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                TextFormField(
+                  controller: _titleController,
+                  decoration: const InputDecoration(labelText: 'Title'),
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter a title';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _amountController,
+                  decoration: const InputDecoration(labelText: 'Amount'),
+                  keyboardType: TextInputType.number,
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please enter an amount';
+                    }
+                    if (double.tryParse(value) == null) {
+                      return 'Please enter a valid number';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: _selectedCategory,
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    border: OutlineInputBorder(),
+                  ),
+                  hint: const Text('Select Category'),
+                  items: _categories.map((category) {
+                    return DropdownMenuItem(
+                      value: category.name,
+                      child: Text(category.name),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedCategory = value;
+                    });
+                  },
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please select a category';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: _selectedFrequency,
+                  decoration: const InputDecoration(
+                    labelText: 'Frequency',
+                    border: OutlineInputBorder(),
+                  ),
+                  hint: const Text('Select Frequency'),
+                  items: _frequencies.map((frequency) {
+                    return DropdownMenuItem(
+                      value: frequency,
+                      child: Text(frequency),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedFrequency = value;
+                    });
+                  },
+                  validator: (value) {
+                    if (value == null || value.isEmpty) {
+                      return 'Please select a frequency';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                ListTile(
+                  title: Text(
+                    'Start Date: ${_startDate.toLocal().toString().split(' ')[0]}',
+                  ),
+                  trailing: const Icon(Icons.calendar_today),
+                  onTap: () => _selectStartDate(context),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(
+                  onPressed: _saveRecurringExpense,
+                  child: const Text('Save Recurring Expense'),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _amountController.dispose();
+    super.dispose();
   }
 }
