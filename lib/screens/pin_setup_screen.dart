@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:expense_tracker/services/auth_service.dart';
-import 'package:expense_tracker/screens/pin_auth_screen.dart';
 
 class PinSetupScreen extends StatefulWidget {
-  const PinSetupScreen({super.key});
+  final bool isFirstTimeSetup;
+  final VoidCallback? onSetupComplete;
+
+  const PinSetupScreen(
+      {this.isFirstTimeSetup = false, this.onSetupComplete, super.key});
 
   @override
   _PinSetupScreenState createState() => _PinSetupScreenState();
@@ -11,125 +14,246 @@ class PinSetupScreen extends StatefulWidget {
 
 class _PinSetupScreenState extends State<PinSetupScreen> {
   final _authService = AuthService();
-  bool _isPinEnabled = false;
-  bool _isLoading = true;
+  String _pin = '';
+  String _confirmPin = '';
+  bool _isConfirmStep = false;
+  String _errorMessage = '';
+  bool _showError = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadSettings();
+  void _onKeyPressed(String key) {
+    setState(() {
+      _showError = false;
+      final currentPin = _isConfirmStep ? _confirmPin : _pin;
+
+      if (currentPin.length < 4) {
+        if (_isConfirmStep) {
+          _confirmPin += key;
+        } else {
+          _pin += key;
+        }
+      }
+
+      if (!_isConfirmStep && _pin.length == 4) {
+        setState(() {
+          _isConfirmStep = true;
+        });
+      }
+    });
   }
 
-  Future<void> _loadSettings() async {
+  void _onBackspace() {
     setState(() {
-      _isLoading = true;
-    });
-
-    final isPinEnabled = await _authService.isPinAuthEnabled();
-    final isPinSet = await _authService.isPinSet();
-
-    setState(() {
-      _isPinEnabled = isPinEnabled && isPinSet;
-      _isLoading = false;
+      _showError = false;
+      if (_isConfirmStep) {
+        if (_confirmPin.isNotEmpty) {
+          _confirmPin = _confirmPin.substring(0, _confirmPin.length - 1);
+        }
+      } else {
+        if (_pin.isNotEmpty) {
+          _pin = _pin.substring(0, _pin.length - 1);
+        }
+      }
     });
   }
 
-  Future<void> _togglePinAuth(bool value) async {
-    if (value) {
-      // Navigate to PIN setup
-      final result = await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => PinAuthScreen(isSetup: true),
-        ),
-      );
+  Future<void> _onSubmit() async {
+    if (!_isConfirmStep) {
+      setState(() {
+        _isConfirmStep = true;
+      });
+      return;
+    }
 
-      if (result == true) {
-        await _loadSettings();
+    if (_pin != _confirmPin) {
+      setState(() {
+        _showError = true;
+        _errorMessage = 'PINs do not match. Please try again.';
+        _confirmPin = '';
+        _isConfirmStep = false;
+      });
+      return;
+    }
+
+    try {
+      final success = await _authService.setPin(_pin);
+      if (success) {
+        await _authService.setPinAuthEnabled(true);
+
+        if (widget.isFirstTimeSetup && widget.onSetupComplete != null) {
+          widget.onSetupComplete!();
+        } else {
+          Navigator.of(context).pop(true);
+        }
+      } else {
+        setState(() {
+          _showError = true;
+          _errorMessage = 'Failed to set PIN. Please try again.';
+        });
       }
-    } else {
-      // Verify PIN before disabling
-      final result = await _showVerifyPinDialog();
-      if (result == true) {
-        await _authService.clearPin();
-        await _authService.setPinAuthEnabled(false);
-        await _loadSettings();
-      }
+    } catch (e) {
+      setState(() {
+        _showError = true;
+        _errorMessage = 'An error occurred. Please try again.';
+      });
     }
   }
 
-  Future<bool?> _showVerifyPinDialog() async {
-    return await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Verify PIN'),
-        content: Text(
-            'Please enter your current PIN to disable PIN authentication.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text('Cancel'),
+  Widget _buildPinDisplay() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(
+        4,
+        (index) => Container(
+          margin: const EdgeInsets.symmetric(horizontal: 10),
+          width: 20,
+          height: 20,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: index < (_isConfirmStep ? _confirmPin.length : _pin.length)
+                ? Theme.of(context).colorScheme.primary
+                : Colors.grey.withOpacity(0.3),
           ),
-          TextButton(
-            onPressed: () async {
-              Navigator.of(context).pop();
-              final result = await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => PinAuthScreen(),
-                ),
-              );
-              return result;
-            },
-            child: Text('Continue'),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNumPad() {
+    return Expanded(
+      child: GridView.count(
+        crossAxisCount: 3,
+        childAspectRatio: 1.5,
+        padding: const EdgeInsets.all(8),
+        physics: const NeverScrollableScrollPhysics(),
+        children: [
+          ...List.generate(9, (index) => _buildNumButton(index + 1)),
+          _buildActionButton(Icons.backspace_outlined, _onBackspace),
+          _buildNumButton(0),
+          _buildActionButton(
+            Icons.check_circle_outline,
+            _onSubmit,
           ),
         ],
       ),
     );
   }
 
+  Widget _buildNumButton(int number) {
+    return InkWell(
+      onTap: () => _onKeyPressed(number.toString()),
+      borderRadius: BorderRadius.circular(40),
+      child: Container(
+        margin: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Theme.of(context).colorScheme.surface,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 2,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Text(
+            number.toString(),
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionButton(IconData icon, VoidCallback onPressed) {
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(40),
+      child: Container(
+        margin: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Theme.of(context).colorScheme.surface,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 2,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Icon(
+            icon,
+            size: 28,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Security Settings'),
-      ),
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator())
-          : ListView(
+    return WillPopScope(
+      // Prevent back navigation during mandatory setup
+      onWillPop: widget.isFirstTimeSetup ? () async => false : () async => true,
+      child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.background,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                ListTile(
-                  title: Text('PIN Authentication'),
-                  subtitle: Text(
-                    _isPinEnabled
-                        ? 'PIN protection is enabled'
-                        : 'Enable PIN to protect your data',
-                  ),
-                  trailing: Switch(
-                    value: _isPinEnabled,
-                    onChanged: _togglePinAuth,
-                  ),
+                const SizedBox(height: 40),
+                Icon(
+                  Icons.lock_outline,
+                  size: 80,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
-                if (_isPinEnabled)
-                  ListTile(
-                    title: Text('Change PIN'),
-                    leading: Icon(Icons.lock_outline),
-                    onTap: () async {
-                      final result = await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => PinAuthScreen(isSetup: true),
-                        ),
-                      );
-                      if (result == true) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('PIN updated successfully')),
-                        );
-                      }
-                    },
+                const SizedBox(height: 30),
+                Text(
+                  widget.isFirstTimeSetup
+                      ? (_isConfirmStep
+                          ? 'Confirm your PIN'
+                          : 'Create a 4-digit PIN')
+                      : 'Set up PIN',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  widget.isFirstTimeSetup
+                      ? 'This PIN will protect your expense data'
+                      : 'Set a new PIN to secure your app',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.grey,
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 40),
+                _buildPinDisplay(),
+                if (_showError)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16.0),
+                    child: Text(
+                      _errorMessage,
+                      style: const TextStyle(
+                        color: Colors.red,
+                        fontSize: 14,
+                      ),
+                    ),
                   ),
+                const SizedBox(height: 30),
+                _buildNumPad(),
               ],
             ),
+          ),
+        ),
+      ),
     );
   }
 }

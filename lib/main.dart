@@ -34,10 +34,9 @@ class MyApp extends StatelessWidget {
           builder: (context, themeProvider, _) {
             return MaterialApp(
               title: 'Expense Tracker',
-              theme: AppTheme.light(), // Light theme from our theme file
-              darkTheme: AppTheme.dark(), // Dark theme from our theme file
-              themeMode:
-                  themeProvider.themeMode, // Current theme mode from provider
+              theme: AppTheme.light(),
+              darkTheme: AppTheme.dark(),
+              themeMode: themeProvider.themeMode,
               home: AuthCheckScreen(),
               routes: {
                 '/home': (context) => const HomeScreen(),
@@ -45,7 +44,7 @@ class MyApp extends StatelessWidget {
                 '/budget_setting': (context) => const BudgetSettingScreen(),
                 '/add_expense': (context) => const AddExpenseScreen(),
               },
-              debugShowCheckedModeBanner: false, // Remove debug banner
+              debugShowCheckedModeBanner: false,
             );
           },
         );
@@ -62,20 +61,19 @@ class AuthCheckScreen extends StatefulWidget {
 class _AuthCheckScreenState extends State<AuthCheckScreen> {
   final AuthService _authService = AuthService();
   bool _isLoading = true;
-  bool _requiresAuth = false;
+  bool _isPinSet = false;
 
   @override
   void initState() {
     super.initState();
-    _checkAuthStatus();
+    _checkPinStatus();
   }
 
-  Future<void> _checkAuthStatus() async {
-    final isPinEnabled = await _authService.isPinAuthEnabled();
+  Future<void> _checkPinStatus() async {
     final isPinSet = await _authService.isPinSet();
 
     setState(() {
-      _requiresAuth = isPinEnabled && isPinSet;
+      _isPinSet = isPinSet;
       _isLoading = false;
     });
   }
@@ -90,10 +88,18 @@ class _AuthCheckScreenState extends State<AuthCheckScreen> {
       );
     }
 
-    if (_requiresAuth) {
-      return PinAuthScreen();
-    } else {
-      return HomeScreen();
+    // Enforce PIN setup
+    if (!_isPinSet) {
+      return PinSetupScreen(
+        isFirstTimeSetup: true,
+        onSetupComplete: () {
+          Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (context) => const HomeScreen()));
+        },
+      );
     }
+
+    // If PIN is set, proceed to authentication
+    return PinAuthScreen();
   }
 }
