@@ -27,9 +27,9 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
       backgroundColor: Theme.of(context).colorScheme.background,
       appBar: widget.isSetup
           ? AppBar(
-              title: Text('Set PIN'),
+              title: const Text('Set PIN'),
               leading: IconButton(
-                icon: Icon(Icons.arrow_back),
+                icon: const Icon(Icons.arrow_back),
                 onPressed: () => Navigator.of(context).pop(),
               ),
             )
@@ -40,13 +40,13 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              SizedBox(height: 40),
+              const SizedBox(height: 40),
               Icon(
                 Icons.lock_outline,
                 size: 80,
                 color: Theme.of(context).colorScheme.primary,
               ),
-              SizedBox(height: 30),
+              const SizedBox(height: 30),
               Text(
                 widget.isSetup
                     ? _isConfirmStep
@@ -56,7 +56,7 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
                 style: Theme.of(context).textTheme.headlineSmall,
                 textAlign: TextAlign.center,
               ),
-              SizedBox(height: 10),
+              const SizedBox(height: 10),
               Text(
                 widget.isSetup
                     ? 'This PIN will protect your expense data'
@@ -66,20 +66,20 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
                     ),
                 textAlign: TextAlign.center,
               ),
-              SizedBox(height: 40),
+              const SizedBox(height: 40),
               _buildPinDisplay(),
               if (_showError)
                 Padding(
                   padding: const EdgeInsets.only(top: 16.0),
                   child: Text(
                     _errorMessage,
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: Colors.red,
                       fontSize: 14,
                     ),
                   ),
                 ),
-              SizedBox(height: 30),
+              const SizedBox(height: 30),
               _buildNumPad(),
             ],
           ),
@@ -94,7 +94,7 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
       children: List.generate(
         4,
         (index) => Container(
-          margin: EdgeInsets.symmetric(horizontal: 10),
+          margin: const EdgeInsets.symmetric(horizontal: 10),
           width: 20,
           height: 20,
           decoration: BoxDecoration(
@@ -113,15 +113,15 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
       child: GridView.count(
         crossAxisCount: 3,
         childAspectRatio: 1.5,
-        padding: EdgeInsets.all(8),
-        physics: NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(8),
+        physics: const NeverScrollableScrollPhysics(),
         children: [
           ...List.generate(9, (index) => _buildNumButton(index + 1)),
-          _buildActionButton(Icons.backspace_outlined, () => _onBackspace()),
+          _buildActionButton(Icons.backspace_outlined, _onBackspace),
           _buildNumButton(0),
           _buildActionButton(
             Icons.check_circle_outline,
-            () => _onSubmit(),
+            _onSubmit,
           ),
         ],
       ),
@@ -133,7 +133,7 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
       onTap: () => _onKeyPressed(number.toString()),
       borderRadius: BorderRadius.circular(40),
       child: Container(
-        margin: EdgeInsets.all(8),
+        margin: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: Theme.of(context).colorScheme.surface,
@@ -141,14 +141,14 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
             BoxShadow(
               color: Colors.black.withOpacity(0.1),
               blurRadius: 2,
-              offset: Offset(0, 1),
+              offset: const Offset(0, 1),
             ),
           ],
         ),
         child: Center(
           child: Text(
             number.toString(),
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
             ),
@@ -163,7 +163,7 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
       onTap: onPressed,
       borderRadius: BorderRadius.circular(40),
       child: Container(
-        margin: EdgeInsets.all(8),
+        margin: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: Theme.of(context).colorScheme.surface,
@@ -171,7 +171,7 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
             BoxShadow(
               color: Colors.black.withOpacity(0.1),
               blurRadius: 2,
-              offset: Offset(0, 1),
+              offset: const Offset(0, 1),
             ),
           ],
         ),
@@ -224,51 +224,73 @@ class _PinAuthScreenState extends State<PinAuthScreen> {
   }
 
   void _onSubmit() async {
+    // Store error handling function to avoid multiple context uses
+    void showErrorState(String message) {
+      if (mounted) {
+        setState(() {
+          _showError = true;
+          _errorMessage = message;
+        });
+      }
+    }
+
     if (_getCurrentPin().length < 4) {
-      setState(() {
-        _showError = true;
-        _errorMessage = 'Please enter a 4-digit PIN';
-      });
+      showErrorState('Please enter a 4-digit PIN');
       return;
     }
 
     if (widget.isSetup) {
       if (!_isConfirmStep) {
         // Move to PIN confirmation
-        setState(() {
-          _isConfirmStep = true;
-        });
+        if (mounted) {
+          setState(() {
+            _isConfirmStep = true;
+          });
+        }
       } else {
         // Confirm and save PIN
         if (_pin == _confirmPin) {
           final success = await _authService.setPin(_pin);
           if (success) {
-            Navigator.of(context).pop(true);
+            if (mounted) {
+              // Use a local function to handle navigation
+              void navigateBack() {
+                Navigator.of(context).pop(true);
+              }
+
+              navigateBack();
+            }
           } else {
-            setState(() {
-              _showError = true;
-              _errorMessage = 'Failed to save PIN. Please try again.';
-            });
+            showErrorState('Failed to save PIN. Please try again.');
           }
         } else {
-          setState(() {
-            _showError = true;
-            _errorMessage = 'PINs don\'t match. Please try again.';
-            _confirmPin = '';
-          });
+          showErrorState('PINs don\'t match. Please try again.');
+          if (mounted) {
+            setState(() {
+              _confirmPin = '';
+            });
+          }
         }
       }
     } else {
       // Verify PIN
       final isValid = await _authService.verifyPin(_pin);
       if (isValid) {
-        Navigator.of(context).pushReplacementNamed('/home');
+        if (mounted) {
+          // Use a local function to handle navigation
+          void navigateToHome() {
+            Navigator.of(context).pushReplacementNamed('/home');
+          }
+
+          navigateToHome();
+        }
       } else {
-        setState(() {
-          _showError = true;
-          _errorMessage = 'Incorrect PIN. Please try again.';
-          _pin = '';
-        });
+        showErrorState('Incorrect PIN. Please try again.');
+        if (mounted) {
+          setState(() {
+            _pin = '';
+          });
+        }
       }
     }
   }

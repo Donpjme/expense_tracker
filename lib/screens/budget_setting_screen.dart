@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:logger/logger.dart';
 import '../models/budget.dart';
 import '../models/category.dart';
 import '../services/database_service.dart';
@@ -24,6 +25,7 @@ class _BudgetSettingScreenState extends State<BudgetSettingScreen> {
   String? _selectedCategory;
   List<Category> _categories = [];
   bool _isLoading = false;
+  final Logger _logger = Logger();
 
   @override
   void initState() {
@@ -103,7 +105,7 @@ class _BudgetSettingScreenState extends State<BudgetSettingScreen> {
             try {
               widget.onBudgetAdded!();
             } catch (e) {
-              print('Error in budget callback: $e');
+              _logger.e('Error in budget callback: $e');
             }
           }
 

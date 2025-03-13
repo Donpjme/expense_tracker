@@ -57,6 +57,15 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
   }
 
   Future<void> _onSubmit() async {
+    // Create a local function to handle navigation to avoid context issues
+    void navigateOrCallback() {
+      if (widget.isFirstTimeSetup && widget.onSetupComplete != null) {
+        widget.onSetupComplete!();
+      } else {
+        Navigator.of(context).pop(true);
+      }
+    }
+
     if (!_isConfirmStep) {
       setState(() {
         _isConfirmStep = true;
@@ -79,22 +88,25 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
       if (success) {
         await _authService.setPinAuthEnabled(true);
 
-        if (widget.isFirstTimeSetup && widget.onSetupComplete != null) {
-          widget.onSetupComplete!();
-        } else {
-          Navigator.of(context).pop(true);
+        if (mounted) {
+          // Use the local navigation function
+          navigateOrCallback();
         }
       } else {
-        setState(() {
-          _showError = true;
-          _errorMessage = 'Failed to set PIN. Please try again.';
-        });
+        if (mounted) {
+          setState(() {
+            _showError = true;
+            _errorMessage = 'Failed to set PIN. Please try again.';
+          });
+        }
       }
     } catch (e) {
-      setState(() {
-        _showError = true;
-        _errorMessage = 'An error occurred. Please try again.';
-      });
+      if (mounted) {
+        setState(() {
+          _showError = true;
+          _errorMessage = 'An error occurred. Please try again.';
+        });
+      }
     }
   }
 

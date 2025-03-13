@@ -220,7 +220,7 @@ class ReportsScreenState extends State<ReportsScreen>
                   .map((entry) {
                 return pw.Text(
                     '${entry.key}: \$${entry.value.toStringAsFixed(2)}');
-              }).toList(),
+              }),
             ],
           );
         },
