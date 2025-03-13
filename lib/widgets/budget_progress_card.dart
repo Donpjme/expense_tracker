@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 class BudgetProgressCard extends StatelessWidget {
   final String category;
@@ -26,6 +27,23 @@ class BudgetProgressCard extends StatelessWidget {
     return Colors.red;
   }
 
+  // Format currency in a consistent way
+  String formatAmount(double amount) {
+    final formatter = NumberFormat.currency(
+      symbol: '\$',
+      decimalDigits: 0, // Use 0 digits for cleaner display
+    );
+
+    if (amount >= 10000) {
+      return NumberFormat.compactCurrency(
+        symbol: '\$',
+        decimalDigits: 1,
+      ).format(amount);
+    }
+
+    return formatter.format(amount);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -49,6 +67,7 @@ class BudgetProgressCard extends StatelessWidget {
                   child: Text(
                     category,
                     style: Theme.of(context).textTheme.titleMedium,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 Text(
@@ -72,13 +91,28 @@ class BudgetProgressCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '\$${spentAmount.toStringAsFixed(2)} spent',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                // Use fitted box for better text scaling
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '${formatAmount(spentAmount)} spent',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
                 ),
-                Text(
-                  'of \$${budgetAmount.toStringAsFixed(2)}',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                const SizedBox(width: 4),
+                // Use fitted box for better text scaling
+                Expanded(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      'of ${formatAmount(budgetAmount)}',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -93,11 +127,14 @@ class BudgetProgressCard extends StatelessWidget {
                       size: 16,
                     ),
                     const SizedBox(width: 4),
-                    Text(
-                      'Over budget by \$${(spentAmount - budgetAmount).toStringAsFixed(2)}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.red,
-                          ),
+                    Expanded(
+                      child: Text(
+                        'Over by ${formatAmount(spentAmount - budgetAmount)}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.red,
+                            ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ],
                 ),

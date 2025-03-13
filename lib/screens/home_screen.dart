@@ -5,7 +5,6 @@ import 'package:expense_tracker/screens/dashboard_screen.dart';
 import 'package:expense_tracker/screens/expenses_list_screen.dart';
 import 'package:expense_tracker/screens/budget_setting_screen.dart';
 import 'package:expense_tracker/screens/reports_screen.dart';
-import 'package:expense_tracker/screens/add_expense_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -27,15 +26,17 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-
     // Initialize screens
     _initializeScreens();
+    // Refresh data when the screen initializes
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshData();
+    });
   }
 
   void _initializeScreens() {
     _screens = [
       DashboardScreen(key: _dashboardKey),
-      // Fixed: Removed the onExpenseDeleted parameter since it's not defined
       ExpensesListScreen(),
       BudgetSettingScreen(onBudgetAdded: _refreshData),
       ReportsScreen(),
@@ -60,6 +61,15 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Expense Tracker'),
         actions: [
+          // Security settings button
+          IconButton(
+            icon: const Icon(Icons.security),
+            onPressed: () {
+              Navigator.pushNamed(context, '/security_settings')
+                  .then((_) => _refreshData());
+            },
+            tooltip: 'Security Settings',
+          ),
           // Refresh button
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -84,13 +94,18 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: _screens[_currentIndex],
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _screens,
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
           setState(() {
             _currentIndex = index;
           });
+          // Refresh data when switching tabs
+          _refreshData();
         },
         type: BottomNavigationBarType.fixed,
         items: const [
@@ -113,16 +128,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          // Navigate to add expense screen and wait for result
-          final result = await Navigator.of(context).push(
-            MaterialPageRoute(builder: (ctx) => const AddExpenseScreen()),
-          );
-
-          // If result is true (expense was added), refresh data
-          if (result == true) {
-            _refreshData();
-          }
+        onPressed: () {
+          Navigator.of(context)
+              .pushNamed('/add_expense')
+              .then((_) => _refreshData());
         },
         tooltip: 'Add expense',
         child: const Icon(Icons.add),

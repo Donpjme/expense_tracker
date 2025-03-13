@@ -23,13 +23,10 @@ class ReportsScreenState extends State<ReportsScreen>
   DateTimeRange? _selectedDateRange;
   String? _selectedCategory;
   String _selectedPeriod = 'month'; // 'week', 'month', 'year', 'all'
-  // ignore: unused_field
-  bool _isExporting = false; // Removed final
   bool _isLoading = true;
-  // ignore: unused_field, prefer_final_fields
-  String _logMessages = ''; // Removed final
 
   // Tab controller for switching between different chart views
+  // MODIFIED: Changed from 3 to 2 tabs (removed Trends tab)
   late TabController _tabController;
 
   // Comparison mode
@@ -39,7 +36,8 @@ class ReportsScreenState extends State<ReportsScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    // MODIFIED: Changed from 3 to 2 tabs
+    _tabController = TabController(length: 2, vsync: this);
     loadExpenses();
   }
 
@@ -145,92 +143,6 @@ class ReportsScreenState extends State<ReportsScreen>
     return spendingByCategory;
   }
 
-  // Calculate spending by month
-  List<Map<String, dynamic>> _calculateSpendingByMonth(List<Expense> expenses) {
-    // Group expenses by month
-    final Map<String, double> monthlySpending = {};
-
-    for (final expense in expenses) {
-      final monthKey = DateFormat('yyyy-MM').format(expense.date);
-      monthlySpending[monthKey] =
-          (monthlySpending[monthKey] ?? 0) + expense.amount;
-    }
-
-    // Convert to list for chart
-    final List<Map<String, dynamic>> result =
-        monthlySpending.entries.map((entry) {
-      final parts = entry.key.split('-');
-      final year = int.parse(parts[0]);
-      final month = int.parse(parts[1]);
-      return {
-        'month': entry.key,
-        'label': DateFormat('MMM yy').format(DateTime(year, month)),
-        'amount': entry.value,
-      };
-    }).toList();
-
-    // Sort by date
-    result.sort((a, b) => a['month'].compareTo(b['month']));
-
-    return result;
-  }
-
-  // Calculate spending by day of week
-  List<Map<String, dynamic>> _calculateSpendingByDayOfWeek(
-      List<Expense> expenses) {
-    // Initialize map with all days of week
-    final Map<int, double> dailySpending = {
-      1: 0, // Monday
-      2: 0, // Tuesday
-      3: 0, // Wednesday
-      4: 0, // Thursday
-      5: 0, // Friday
-      6: 0, // Saturday
-      7: 0, // Sunday
-    };
-
-    for (final expense in expenses) {
-      final weekday = expense.date.weekday;
-      dailySpending[weekday] = (dailySpending[weekday] ?? 0) + expense.amount;
-    }
-
-    // Convert to list for chart
-    final List<Map<String, dynamic>> result =
-        dailySpending.entries.map((entry) {
-      return {
-        'day': entry.key,
-        'label': _getDayName(entry.key),
-        'amount': entry.value,
-      };
-    }).toList();
-
-    // Sort by day of week
-    result.sort((a, b) => a['day'].compareTo(b['day']));
-
-    return result;
-  }
-
-  String _getDayName(int day) {
-    switch (day) {
-      case 1:
-        return 'Mon';
-      case 2:
-        return 'Tue';
-      case 3:
-        return 'Wed';
-      case 4:
-        return 'Thu';
-      case 5:
-        return 'Fri';
-      case 6:
-        return 'Sat';
-      case 7:
-        return 'Sun';
-      default:
-        return '';
-    }
-  }
-
   // Get comparison data based on selected period
   List<Expense> _getComparisonData() {
     if (!_showComparison) return [];
@@ -288,10 +200,6 @@ class ReportsScreenState extends State<ReportsScreen>
 
   // Export expenses as PDF
   Future<void> _exportAsPDF() async {
-    setState(() {
-      _isExporting = true;
-    });
-
     final pdf = pw.Document();
 
     // Add a page to the PDF
@@ -312,7 +220,6 @@ class ReportsScreenState extends State<ReportsScreen>
                   .map((entry) {
                 return pw.Text(
                     '${entry.key}: \$${entry.value.toStringAsFixed(2)}');
-              // ignore: unnecessary_to_list_in_spreads
               }).toList(),
             ],
           );
@@ -327,18 +234,10 @@ class ReportsScreenState extends State<ReportsScreen>
 
     // Share the PDF file
     await Share.shareXFiles([XFile(file.path)], text: 'Expense Report');
-
-    setState(() {
-      _isExporting = false;
-    });
   }
 
   // Export expenses as CSV
   Future<void> _exportAsCSV() async {
-    setState(() {
-      _isExporting = true;
-    });
-
     // Convert expenses to CSV format
     final List<List<dynamic>> csvData = [];
     csvData.add(['Title', 'Category', 'Amount', 'Date']); // Header row
@@ -361,10 +260,6 @@ class ReportsScreenState extends State<ReportsScreen>
 
     // Share the CSV file
     await Share.shareXFiles([XFile(file.path)], text: 'Expense Report');
-
-    setState(() {
-      _isExporting = false;
-    });
   }
 
   @override
@@ -380,9 +275,6 @@ class ReportsScreenState extends State<ReportsScreen>
     final currentTotal = _calculateTotalSpending(_filteredExpenses);
     final comparisonTotal = _calculateTotalSpending(comparisonExpenses);
     final spendingByCategory = _calculateSpendingByCategory(_filteredExpenses);
-    final spendingByMonth = _calculateSpendingByMonth(_filteredExpenses);
-    final spendingByDayOfWeek =
-        _calculateSpendingByDayOfWeek(_filteredExpenses);
 
     return Scaffold(
       appBar: AppBar(
@@ -398,23 +290,23 @@ class ReportsScreenState extends State<ReportsScreen>
               PopupMenuItem(
                 child: const Text('Export as PDF'),
                 onTap: () async {
-                  await _exportAsPDF(); // Call the PDF export function
+                  await _exportAsPDF();
                 },
               ),
               PopupMenuItem(
                 child: const Text('Export as CSV'),
                 onTap: () async {
-                  await _exportAsCSV(); // Call the CSV export function
+                  await _exportAsCSV();
                 },
               ),
             ],
           ),
         ],
+        // MODIFIED: Changed tab titles, removed 'Trends' tab
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
             Tab(text: 'Overview'),
-            Tab(text: 'Trends'),
             Tab(text: 'Categories'),
           ],
         ),
@@ -428,8 +320,7 @@ class ReportsScreenState extends State<ReportsScreen>
                 _buildOverviewTab(
                     currentTotal, comparisonTotal, spendingByCategory),
 
-                // Trends Tab
-                _buildTrendsTab(spendingByMonth, spendingByDayOfWeek),
+                // MODIFIED: Removed Trends Tab
 
                 // Categories Tab
                 _buildCategoriesTab(spendingByCategory),
@@ -551,222 +442,7 @@ class ReportsScreenState extends State<ReportsScreen>
     );
   }
 
-  Widget _buildTrendsTab(List<Map<String, dynamic>> spendingByMonth,
-      List<Map<String, dynamic>> spendingByDayOfWeek) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Filter indicators
-          _buildActiveFilters(),
-
-          const SizedBox(height: 16),
-
-          // Monthly trend
-          const Text(
-            'Monthly Spending Trend',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          Container(
-            height: 250,
-            padding: const EdgeInsets.all(8),
-            child: spendingByMonth.isEmpty
-                ? const Center(child: Text('No monthly data available'))
-                : LineChart(
-                    LineChartData(
-                      gridData: FlGridData(show: true),
-                      titlesData: FlTitlesData(
-                        bottomTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            getTitlesWidget: (value, meta) {
-                              if (value.toInt() >= 0 &&
-                                  value.toInt() < spendingByMonth.length) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(top: 8.0),
-                                  child: Text(
-                                    spendingByMonth[value.toInt()]['label'],
-                                    style: const TextStyle(fontSize: 10),
-                                  ),
-                                );
-                              }
-                              return const SizedBox();
-                            },
-                            reservedSize: 30,
-                          ),
-                        ),
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            getTitlesWidget: (value, meta) {
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 8.0),
-                                child: Text(
-                                  '\$${value.toInt()}',
-                                  style: const TextStyle(fontSize: 10),
-                                ),
-                              );
-                            },
-                            reservedSize: 40,
-                          ),
-                        ),
-                        topTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                        rightTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                      ),
-                      borderData: FlBorderData(show: true),
-                      lineBarsData: [
-                        LineChartBarData(
-                          spots: spendingByMonth
-                              .asMap()
-                              .entries
-                              .map((entry) => FlSpot(
-                                  entry.key.toDouble(), entry.value['amount']))
-                              .toList(),
-                          isCurved: true,
-                          barWidth: 3,
-                          color: Theme.of(context).colorScheme.primary,
-                          dotData: FlDotData(show: true),
-                          belowBarData: BarAreaData(
-                            show: true,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primary
-                                .withOpacity(0.2),
-                          ),
-                        ),
-                      ],
-                      lineTouchData: LineTouchData(
-                        touchTooltipData: LineTouchTooltipData(
-                          getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
-                            return touchedBarSpots.map((barSpot) {
-                              final index = barSpot.x.toInt();
-                              if (index >= 0 &&
-                                  index < spendingByMonth.length) {
-                                final data = spendingByMonth[index];
-                                return LineTooltipItem(
-                                  '${data['label']}: \$${data['amount'].toStringAsFixed(2)}',
-                                  const TextStyle(color: Colors.white),
-                                );
-                              }
-                              return null;
-                            }).toList();
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // Daily trend
-          const Text(
-            'Spending by Day of Week',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          Container(
-            height: 250,
-            padding: const EdgeInsets.all(8),
-            child: spendingByDayOfWeek.isEmpty
-                ? const Center(child: Text('No daily data available'))
-                : BarChart(
-                    BarChartData(
-                      alignment: BarChartAlignment.center,
-                      barTouchData: BarTouchData(
-                        enabled: true,
-                        touchTooltipData: BarTouchTooltipData(
-                          getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                            final data = spendingByDayOfWeek[groupIndex];
-                            return BarTooltipItem(
-                              '${data['label']}: \$${data['amount'].toStringAsFixed(2)}',
-                              const TextStyle(color: Colors.white),
-                            );
-                          },
-                        ),
-                      ),
-                      titlesData: FlTitlesData(
-                        bottomTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            getTitlesWidget: (value, meta) {
-                              if (value.toInt() >= 0 &&
-                                  value.toInt() < spendingByDayOfWeek.length) {
-                                return Padding(
-                                  padding: const EdgeInsets.only(top: 8.0),
-                                  child: Text(
-                                    spendingByDayOfWeek[value.toInt()]['label'],
-                                    style: const TextStyle(fontSize: 10),
-                                  ),
-                                );
-                              }
-                              return const SizedBox();
-                            },
-                            reservedSize: 30,
-                          ),
-                        ),
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            getTitlesWidget: (value, meta) {
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 8.0),
-                                child: Text(
-                                  '\$${value.toInt()}',
-                                  style: const TextStyle(fontSize: 10),
-                                ),
-                              );
-                            },
-                            reservedSize: 40,
-                          ),
-                        ),
-                        topTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                        rightTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                      ),
-                      borderData: FlBorderData(show: false),
-                      gridData: FlGridData(show: true),
-                      barGroups: spendingByDayOfWeek
-                          .asMap()
-                          .entries
-                          .map((entry) => BarChartGroupData(
-                                x: entry.key,
-                                barRods: [
-                                  BarChartRodData(
-                                    toY: entry.value['amount'],
-                                    color:
-                                        Theme.of(context).colorScheme.secondary,
-                                    width: 20,
-                                    borderRadius: const BorderRadius.only(
-                                      topLeft: Radius.circular(3),
-                                      topRight: Radius.circular(3),
-                                    ),
-                                  ),
-                                ],
-                              ))
-                          .toList(),
-                    ),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
+  // MODIFIED: Removed _buildTrendsTab method entirely
 
   Widget _buildCategoriesTab(Map<String, double> spendingByCategory) {
     final List<MapEntry<String, double>> sortedCategories =
