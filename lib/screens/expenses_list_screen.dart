@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:expense_tracker/models/expense.dart';
 import 'package:expense_tracker/services/database_service.dart';
 import 'package:expense_tracker/screens/add_expense_screen.dart';
+import 'package:expense_tracker/screens/expense_edit_screen.dart';
 import 'package:intl/intl.dart';
 import 'package:logger/logger.dart';
 
@@ -18,6 +19,7 @@ class _ExpensesListScreenState extends State<ExpensesListScreen>
   bool _isLoading = true;
   final DatabaseService _databaseService = DatabaseService();
   final Logger _logger = Logger();
+  bool _loadingInitiated = false;
 
   // Add this to maintain state when switching tabs
   @override
@@ -29,29 +31,36 @@ class _ExpensesListScreenState extends State<ExpensesListScreen>
     _loadExpenses();
   }
 
+  // FIXED: Removed duplicate load in didChangeDependencies
+  // to prevent multiple simultaneous loads
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // This helps refresh when returning to this screen
-    _loadExpenses();
+    // Only load if not already loading
+    if (!_isLoading && !_loadingInitiated) {
+      _loadExpenses();
+    }
   }
 
-  // Add this to ensure we reload when this tab becomes visible again
   @override
   void activate() {
     super.activate();
-    _loadExpenses();
+    // Only load if not already loading
+    if (!_isLoading && !_loadingInitiated) {
+      _loadExpenses();
+    }
   }
 
   Future<void> _loadExpenses() async {
     if (!mounted) return;
+    if (_loadingInitiated) return; // Prevent multiple simultaneous loads
 
     setState(() {
       _isLoading = true;
+      _loadingInitiated = true; // Mark that we're starting to load
     });
 
     try {
-      // Add logger statement for debugging
       _logger.i('Loading expenses from database');
       final expenses = await _databaseService.getExpenses();
       _logger.i('Loaded ${expenses.length} expenses from database');
@@ -63,6 +72,7 @@ class _ExpensesListScreenState extends State<ExpensesListScreen>
         // Sort expenses by date (most recent first)
         _expenses.sort((a, b) => b.date.compareTo(a.date));
         _isLoading = false;
+        _loadingInitiated = false; // Reset loading flag
       });
     } catch (e) {
       _logger.e('Error loading expenses: $e');
@@ -70,6 +80,7 @@ class _ExpensesListScreenState extends State<ExpensesListScreen>
 
       setState(() {
         _isLoading = false;
+        _loadingInitiated = false; // Reset loading flag
       });
 
       if (mounted && context.mounted) {
@@ -80,6 +91,7 @@ class _ExpensesListScreenState extends State<ExpensesListScreen>
     }
   }
 
+  // Rest of your methods...
   // Helper method to format date
   String _formatDate(DateTime date) {
     final now = DateTime.now();
@@ -145,13 +157,7 @@ class _ExpensesListScreenState extends State<ExpensesListScreen>
 
     // Then try to update database
     try {
-      // Use direct SQLite deletion instead of calling a method that doesn't exist yet
-      final db = await _databaseService.database;
-      await db.delete(
-        'expenses',
-        where: 'id = ?',
-        whereArgs: [id],
-      );
+      await _databaseService.deleteExpense(id);
       _logger.i('Expense deleted: $id');
     } catch (e) {
       _logger.e('Error deleting expense: $e');
@@ -226,79 +232,139 @@ class _ExpensesListScreenState extends State<ExpensesListScreen>
                       itemCount: _expenses.length,
                       itemBuilder: (context, index) {
                         final expense = _expenses[index];
-                        return Dismissible(
-                          key: Key(expense.id),
-                          background: Container(
-                            color: Colors.red,
-                            alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.only(right: 16),
-                            child: const Icon(
-                              Icons.delete,
-                              color: Colors.white,
-                            ),
-                          ),
-                          direction: DismissDirection.endToStart,
-                          confirmDismiss: (direction) async {
-                            return await showDialog(
-                              context: context,
-                              builder: (BuildContext context) {
-                                return AlertDialog(
-                                  title: const Text('Confirm Deletion'),
-                                  content: const Text(
-                                      'Are you sure you want to delete this expense?'),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.of(context).pop(false),
-                                      child: const Text('Cancel'),
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: Column(
+                            children: [
+                              ListTile(
+                                title: Text(
+                                  expense.title,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  '${expense.category} • ${_formatDate(expense.date)}',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                leading: CircleAvatar(
+                                  backgroundColor: Theme.of(context)
+                                      .colorScheme
+                                      .primary
+                                      .withOpacity(0.1),
+                                  child: Icon(
+                                    Icons.receipt,
+                                    color:
+                                        Theme.of(context).colorScheme.primary,
+                                  ),
+                                ),
+                                trailing: Text(
+                                  _formatCurrency(expense.amount),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    color: expense.amount > 100
+                                        ? Colors.red
+                                        : Colors.green,
+                                  ),
+                                ),
+                                onTap: () {
+                                  // Show expense details
+                                  _showExpenseDetails(context, expense);
+                                },
+                              ),
+                              // Action buttons row
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                    right: 8, bottom: 8, left: 8),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    // Edit button
+                                    TextButton.icon(
+                                      icon: Icon(
+                                        Icons.edit,
+                                        size: 20,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
+                                      ),
+                                      label: Text(
+                                        'Edit',
+                                        style: TextStyle(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary,
+                                        ),
+                                      ),
+                                      style: TextButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 8,
+                                        ),
+                                      ),
+                                      onPressed: () {
+                                        Navigator.of(context).push(
+                                          MaterialPageRoute(
+                                            builder: (context) =>
+                                                ExpenseEditScreen(
+                                              expense: expense,
+                                              onExpenseUpdated: () =>
+                                                  _loadExpenses(),
+                                            ),
+                                          ),
+                                        );
+                                      },
                                     ),
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.of(context).pop(true),
-                                      child: const Text('Delete'),
+                                    const SizedBox(width: 8),
+                                    // Delete button
+                                    TextButton.icon(
+                                      icon: const Icon(
+                                        Icons.delete,
+                                        size: 20,
+                                        color: Colors.red,
+                                      ),
+                                      label: const Text(
+                                        'Delete',
+                                        style: TextStyle(
+                                          color: Colors.red,
+                                        ),
+                                      ),
+                                      style: TextButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 8,
+                                        ),
+                                      ),
+                                      onPressed: () {
+                                        _confirmDelete(context, expense);
+                                      },
                                     ),
                                   ],
-                                );
-                              },
-                            );
-                          },
-                          onDismissed: (direction) {
-                            // Delete the expense
-                            _handleDeleteExpense(expense.id, index);
-                          },
-                          child: Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            child: ListTile(
-                              title: Text(
-                                expense.title,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              subtitle: Text(
-                                '${expense.category} • ${_formatDate(expense.date)}',
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              trailing: Text(
-                                _formatCurrency(expense.amount),
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                  color: expense.amount > 100
-                                      ? Colors.red
-                                      : Colors.green,
                                 ),
                               ),
-                              onTap: () {
-                                // Show expense details in a bottom sheet
-                                _showExpenseDetails(context, expense);
-                              },
-                            ),
+                            ],
                           ),
                         );
                       },
                     ),
             ),
+      floatingActionButton: FloatingActionButton(
+        // Add heroTag to fix conflict
+        heroTag: 'expensesListFAB',
+        onPressed: () async {
+          final result = await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => const AddExpenseScreen(),
+            ),
+          );
+          if (result == true) {
+            _loadExpenses();
+          }
+        },
+        tooltip: 'Add Expense',
+        child: const Icon(Icons.add),
+      ),
     );
   }
 
@@ -337,21 +403,47 @@ class _ExpensesListScreenState extends State<ExpensesListScreen>
               _buildDetailRow(
                   'Date:', DateFormat('MMMM d, yyyy').format(expense.date)),
               const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Edit button
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.edit),
+                      label: const Text('Edit'),
+                      onPressed: () {
+                        Navigator.pop(context); // Close the bottom sheet
+
+                        // Navigate to edit screen
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => ExpenseEditScreen(
+                              expense: expense,
+                              onExpenseUpdated: () => _loadExpenses(),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                   ),
-                  icon: const Icon(Icons.delete),
-                  label: const Text('Delete Expense'),
-                  onPressed: () {
-                    Navigator.pop(context);
-                    // Delete the expense
-                    _confirmDelete(context, expense);
-                  },
-                ),
+                  const SizedBox(width: 12),
+                  // Delete button
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: const Icon(Icons.delete),
+                      label: const Text('Delete'),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        // Delete the expense
+                        _confirmDelete(context, expense);
+                      },
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
             ],

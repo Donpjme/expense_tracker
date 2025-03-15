@@ -6,6 +6,8 @@ class RecurringExpense {
   final DateTime startDate;
   final DateTime nextDate;
   final String frequency; // e.g., 'daily', 'weekly', 'monthly'
+  final bool
+      isActive; // Added field to track whether the recurring expense is active
 
   RecurringExpense({
     required this.id,
@@ -15,9 +17,10 @@ class RecurringExpense {
     required this.startDate,
     required this.nextDate,
     required this.frequency,
+    this.isActive = true, // Default to active
   });
 
-  // Convert a RecurringExpense object to a Map
+  // Convert a RecurringExpense object to a Map for database storage
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -27,10 +30,11 @@ class RecurringExpense {
       'startDate': startDate.toIso8601String(),
       'nextDate': nextDate.toIso8601String(),
       'frequency': frequency,
+      'isActive': isActive ? 1 : 0, // Store as 1 (true) or 0 (false) for SQLite
     };
   }
 
-  // Create a RecurringExpense object from a Map
+  // Create a RecurringExpense object from a Map retrieved from the database
   factory RecurringExpense.fromMap(Map<String, dynamic> map) {
     return RecurringExpense(
       id: map['id'],
@@ -40,6 +44,9 @@ class RecurringExpense {
       startDate: DateTime.parse(map['startDate']),
       nextDate: DateTime.parse(map['nextDate']),
       frequency: map['frequency'],
+      isActive: map['isActive'] == null
+          ? true
+          : map['isActive'] == 1, // Handle null case
     );
   }
 }

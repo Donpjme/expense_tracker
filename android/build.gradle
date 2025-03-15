@@ -18,7 +18,7 @@ tasks.register("clean", Delete) {
 }
 
 buildscript {
-    ext.kotlin_version = '1.9.22' // Update Kotlin version if needed
+    ext.kotlin_version = '1.9.0' // Update Kotlin version if needed
     repositories {
         google()
         mavenCentral()

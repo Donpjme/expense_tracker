@@ -8,7 +8,9 @@ import 'package:expense_tracker/screens/pin_setup_screen.dart';
 import 'package:expense_tracker/screens/budget_setting_screen.dart';
 import 'package:expense_tracker/screens/add_expense_screen.dart';
 import 'package:expense_tracker/services/auth_service.dart';
+import 'package:expense_tracker/services/database_service.dart';
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:logger/logger.dart';
 
 void main() {
   // Ensure Flutter is initialized
@@ -37,7 +39,7 @@ class MyApp extends StatelessWidget {
               theme: AppTheme.light(),
               darkTheme: AppTheme.dark(),
               themeMode: themeProvider.themeMode,
-              home: const AuthCheckScreen(),
+              home: AuthCheckScreen(),
               routes: {
                 '/home': (context) => const HomeScreen(),
                 '/security_settings': (context) => const PinSetupScreen(),
@@ -54,14 +56,14 @@ class MyApp extends StatelessWidget {
 }
 
 class AuthCheckScreen extends StatefulWidget {
-  const AuthCheckScreen({super.key}); // Added key constructor
-
   @override
   _AuthCheckScreenState createState() => _AuthCheckScreenState();
 }
 
 class _AuthCheckScreenState extends State<AuthCheckScreen> {
   final AuthService _authService = AuthService();
+  final DatabaseService _databaseService = DatabaseService();
+  final Logger _logger = Logger();
   bool _isLoading = true;
   bool _isPinSet = false;
 
@@ -69,28 +71,53 @@ class _AuthCheckScreenState extends State<AuthCheckScreen> {
   void initState() {
     super.initState();
     _checkPinStatus();
+    _processRecurringItems();
   }
 
-  Future<void> _checkPinStatus() async {
-    final isPinSet = await _authService.isPinSet();
+  /// Process any recurring expenses and budgets that are due
+  Future<void> _processRecurringItems() async {
+    try {
+      await _databaseService.checkAndAddRecurringExpenses();
+      await _databaseService.checkAndAddRecurringBudgets();
+    } catch (e) {
+      _logger.e('Error processing recurring items: $e');
+    }
+  }
 
-    setState(() {
-      _isPinSet = isPinSet;
-      _isLoading = false;
-    });
+  /// Check if PIN is set for authentication
+  Future<void> _checkPinStatus() async {
+    try {
+      final isPinSet = await _authService.isPinSet();
+      final isPinEnabled = await _authService.isPinAuthEnabled();
+
+      if (!mounted) return;
+
+      setState(() {
+        _isPinSet = isPinSet && isPinEnabled;
+        _isLoading = false;
+      });
+    } catch (e) {
+      _logger.e('Error checking PIN status: $e');
+      if (!mounted) return;
+
+      setState(() {
+        _isPinSet = false; // Default to setup mode on error
+        _isLoading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
+      return Scaffold(
         body: Center(
           child: CircularProgressIndicator(),
         ),
       );
     }
 
-    // Enforce PIN setup
+    // Enforce PIN setup if it's not set
     if (!_isPinSet) {
       return PinSetupScreen(
         isFirstTimeSetup: true,
@@ -102,6 +129,6 @@ class _AuthCheckScreenState extends State<AuthCheckScreen> {
     }
 
     // If PIN is set, proceed to authentication
-    return const PinAuthScreen();
+    return PinAuthScreen();
   }
 }

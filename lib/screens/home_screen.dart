@@ -128,6 +128,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
+        // Add a unique heroTag to fix the hero animation conflict
+        heroTag: 'homeScreenFAB',
         onPressed: () {
           Navigator.of(context)
               .pushNamed('/add_expense')

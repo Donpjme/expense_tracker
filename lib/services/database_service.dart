@@ -10,12 +10,13 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart'
         sqfliteFfiInit;
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:path/path.dart';
-import 'package:path_provider/path_provider.dart'; // Add this import
+import 'package:path_provider/path_provider.dart';
 import 'package:logger/logger.dart';
 import '../models/expense.dart';
-import '../models/budget.dart'; // Import the Budget model
-import '../models/category.dart'; // Import the Category model
+import '../models/budget.dart';
+import '../models/category.dart';
 import '../models/recurring_expense.dart';
+import '../models/recurring_budget.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -23,8 +24,8 @@ class DatabaseService {
   static Database? _database;
   final Logger _logger = Logger();
 
-  // Increment the database version
-  static const int _databaseVersion = 3; // Changed from 2 to 3
+  // Increment the database version when schema changes
+  static const int _databaseVersion = 5; // Increased for adding isActive column
 
   DatabaseService._internal();
 
@@ -116,13 +117,26 @@ class DatabaseService {
         )
       ''');
 
-      // Create recurring_expenses table
+      // Create recurring_expenses table with isActive column
       await db.execute('''
         CREATE TABLE recurring_expenses(
           id TEXT PRIMARY KEY,
           title TEXT,
           amount REAL,
           category TEXT,
+          startDate TEXT,
+          nextDate TEXT,
+          frequency TEXT,
+          isActive INTEGER DEFAULT 1
+        )
+      ''');
+
+      // Create recurring_budgets table
+      await db.execute('''
+        CREATE TABLE recurring_budgets(
+          id TEXT PRIMARY KEY,
+          category TEXT,
+          budgetLimit REAL,
           startDate TEXT,
           nextDate TEXT,
           frequency TEXT
@@ -185,6 +199,57 @@ class DatabaseService {
         }
       }
 
+      if (oldVersion < 4) {
+        _logger.i('Creating recurring_budgets table');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS recurring_budgets(
+            id TEXT PRIMARY KEY,
+            category TEXT,
+            budgetLimit REAL,
+            startDate TEXT,
+            nextDate TEXT,
+            frequency TEXT
+          )
+        ''');
+      }
+
+      if (oldVersion < 5) {
+        // Check if the recurring_expenses table exists
+        final tables = await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='recurring_expenses'");
+
+        if (tables.isNotEmpty) {
+          // Table exists, check if the column exists
+          final columns =
+              await db.rawQuery("PRAGMA table_info(recurring_expenses)");
+          final hasIsActive = columns.any((col) => col['name'] == 'isActive');
+
+          if (!hasIsActive) {
+            // Add isActive column to existing table
+            _logger.i('Adding isActive column to recurring_expenses table');
+            await db.execute('''
+              ALTER TABLE recurring_expenses 
+              ADD COLUMN isActive INTEGER DEFAULT 1
+            ''');
+          }
+        } else {
+          // Table doesn't exist, create it
+          _logger.i('Creating recurring_expenses table with isActive column');
+          await db.execute('''
+            CREATE TABLE recurring_expenses(
+              id TEXT PRIMARY KEY,
+              title TEXT,
+              amount REAL,
+              category TEXT,
+              startDate TEXT,
+              nextDate TEXT,
+              frequency TEXT,
+              isActive INTEGER DEFAULT 1
+            )
+          ''');
+        }
+      }
+
       _logger.i('Database upgrade completed successfully');
     } catch (e) {
       _logger.e('Failed to upgrade database: $e');
@@ -192,10 +257,34 @@ class DatabaseService {
     }
   }
 
+  // Rest of your methods...
   // Insert an expense into the database
   Future<void> insertExpense(Expense expense) async {
     final db = await database;
     await db.insert('expenses', expense.toMap());
+  }
+
+  // Update an existing expense in the database
+  Future<void> updateExpense(Expense expense) async {
+    final db = await database;
+    await db.update(
+      'expenses',
+      expense.toMap(),
+      where: 'id = ?',
+      whereArgs: [expense.id],
+    );
+    _logger.i('Expense updated: ${expense.id}');
+  }
+
+  // Delete an expense from the database
+  Future<void> deleteExpense(String id) async {
+    final db = await database;
+    await db.delete(
+      'expenses',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    _logger.i('Expense deleted: $id');
   }
 
   // Retrieve all expenses from the database
@@ -211,6 +300,29 @@ class DatabaseService {
   Future<void> insertBudget(Budget budget) async {
     final db = await database;
     await db.insert('budgets', budget.toMap());
+  }
+
+  // Update an existing budget in the database
+  Future<void> updateBudget(Budget budget) async {
+    final db = await database;
+    await db.update(
+      'budgets',
+      budget.toMap(),
+      where: 'id = ?',
+      whereArgs: [budget.id],
+    );
+    _logger.i('Budget updated: ${budget.id}');
+  }
+
+  // Delete a budget from the database
+  Future<void> deleteBudget(String id) async {
+    final db = await database;
+    await db.delete(
+      'budgets',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    _logger.i('Budget deleted: $id');
   }
 
   // Retrieve all budgets from the database
@@ -243,6 +355,29 @@ class DatabaseService {
     await db.insert('recurring_expenses', recurringExpense.toMap());
   }
 
+  // Update an existing recurring expense
+  Future<void> updateRecurringExpense(RecurringExpense recurringExpense) async {
+    final db = await database;
+    await db.update(
+      'recurring_expenses',
+      recurringExpense.toMap(),
+      where: 'id = ?',
+      whereArgs: [recurringExpense.id],
+    );
+    _logger.i('Recurring expense updated: ${recurringExpense.id}');
+  }
+
+  // Delete a recurring expense
+  Future<void> deleteRecurringExpense(String id) async {
+    final db = await database;
+    await db.delete(
+      'recurring_expenses',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    _logger.i('Recurring expense deleted: $id');
+  }
+
   // Retrieve all recurring expenses from the database
   Future<List<RecurringExpense>> getRecurringExpenses() async {
     final db = await database;
@@ -253,6 +388,46 @@ class DatabaseService {
     });
   }
 
+  // Insert a recurring budget into the database
+  Future<void> insertRecurringBudget(RecurringBudget recurringBudget) async {
+    final db = await database;
+    await db.insert('recurring_budgets', recurringBudget.toMap());
+    _logger.i('Recurring budget inserted: ${recurringBudget.id}');
+  }
+
+  // Update an existing recurring budget
+  Future<void> updateRecurringBudget(RecurringBudget recurringBudget) async {
+    final db = await database;
+    await db.update(
+      'recurring_budgets',
+      recurringBudget.toMap(),
+      where: 'id = ?',
+      whereArgs: [recurringBudget.id],
+    );
+    _logger.i('Recurring budget updated: ${recurringBudget.id}');
+  }
+
+  // Delete a recurring budget
+  Future<void> deleteRecurringBudget(String id) async {
+    final db = await database;
+    await db.delete(
+      'recurring_budgets',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    _logger.i('Recurring budget deleted: $id');
+  }
+
+  // Retrieve all recurring budgets from the database
+  Future<List<RecurringBudget>> getRecurringBudgets() async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query('recurring_budgets');
+    return List.generate(maps.length, (i) {
+      return RecurringBudget.fromMap(maps[i]);
+    });
+  }
+
+  // CRUD operations for recurring budgets and other utility methods...
   // Calculate total spending for a specific category
   Future<double> getTotalSpendingForCategory(String category) async {
     final db = await database;
@@ -279,16 +454,14 @@ class DatabaseService {
     );
 
     if (budgets.isEmpty) {
-      _logger.i(
-          'No budget set for category: $category'); // Use logger instead of print
+      _logger.i('No budget set for category: $category');
       return false; // No budget set for this category
     }
 
     final budget = Budget.fromMap(budgets.first);
     final totalSpent = await getTotalSpendingForCategory(category);
 
-    _logger.i(
-        'Budget Limit: ${budget.budgetLimit}, Total Spent: $totalSpent'); // Use logger instead of print
+    _logger.i('Budget Limit: ${budget.budgetLimit}, Total Spent: $totalSpent');
 
     return totalSpent > budget.budgetLimit;
   }
@@ -309,14 +482,20 @@ class DatabaseService {
     return Budget.fromMap(budgets.first);
   }
 
+  // Process recurring expenses that are due
   Future<void> checkAndAddRecurringExpenses() async {
     final db = await database;
     final now = DateTime.now();
 
-    // Get all recurring expenses
-    final recurringExpenses = await getRecurringExpenses();
+    // Get all active recurring expenses
+    final recurringExpenses = await db.query(
+      'recurring_expenses',
+      where: 'isActive = ?',
+      whereArgs: [1],
+    );
 
-    for (final recurringExpense in recurringExpenses) {
+    for (final expenseMap in recurringExpenses) {
+      final recurringExpense = RecurringExpense.fromMap(expenseMap);
       if (recurringExpense.nextDate.isBefore(now) ||
           recurringExpense.nextDate.isAtSameMomentAs(now)) {
         // Add the recurring expense to the expenses table
@@ -342,6 +521,55 @@ class DatabaseService {
     }
   }
 
+  // Process recurring budgets that are due
+  Future<void> checkAndAddRecurringBudgets() async {
+    try {
+      _logger.i('Checking for recurring budgets');
+      final db = await database;
+      final now = DateTime.now();
+
+      // Get all recurring budgets
+      final List<Map<String, dynamic>> recurringBudgets =
+          await db.query('recurring_budgets');
+
+      for (final budgetMap in recurringBudgets) {
+        final recurringBudget = RecurringBudget.fromMap(budgetMap);
+        if (recurringBudget.nextDate.isBefore(now) ||
+            recurringBudget.nextDate.isAtSameMomentAs(now)) {
+          // Create new budget
+          final newBudget = Budget(
+            id: DateTime.now().toString(),
+            category: recurringBudget.category,
+            budgetLimit: recurringBudget.budgetLimit,
+            startDate: recurringBudget.nextDate,
+            endDate: _calculateNextDate(
+                recurringBudget.nextDate, recurringBudget.frequency),
+          );
+
+          await insertBudget(newBudget);
+
+          // Update next date
+          final newNextDate = _calculateNextDate(
+              recurringBudget.nextDate, recurringBudget.frequency);
+
+          await db.update(
+            'recurring_budgets',
+            {'nextDate': newNextDate.toIso8601String()},
+            where: 'id = ?',
+            whereArgs: [recurringBudget.id],
+          );
+
+          _logger.i(
+              'Created new budget from recurring budget: ${recurringBudget.id}');
+        }
+      }
+    } catch (e) {
+      _logger.e('Error checking recurring budgets: $e');
+    }
+  }
+
+  // Helper methods...
+  /// Calculate the next date based on frequency
   DateTime _calculateNextDate(DateTime currentDate, String frequency) {
     switch (frequency) {
       case 'Daily':
@@ -351,8 +579,14 @@ class DatabaseService {
       case 'Monthly':
         return DateTime(
             currentDate.year, currentDate.month + 1, currentDate.day);
+      case 'Quarterly':
+        return DateTime(
+            currentDate.year, currentDate.month + 3, currentDate.day);
+      case 'Yearly':
+        return DateTime(
+            currentDate.year + 1, currentDate.month, currentDate.day);
       default:
-        return currentDate;
+        return currentDate.add(Duration(days: 30)); // Default to monthly
     }
   }
 }
