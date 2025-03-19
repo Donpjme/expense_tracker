@@ -13,11 +13,18 @@ class CombinedExpensesScreen extends StatefulWidget {
 class _CombinedExpensesScreenState extends State<CombinedExpensesScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  final GlobalKey<RecurringExpenseScreenState> _recurringExpenseKey =
+      GlobalKey<RecurringExpenseScreenState>();
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+
+    // Listen to tab changes to update FAB action
+    _tabController.addListener(() {
+      setState(() {}); // Rebuild to update FAB
+    });
   }
 
   @override
@@ -29,24 +36,29 @@ class _CombinedExpensesScreenState extends State<CombinedExpensesScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Expenses'),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Regular'),
-            Tab(text: 'Recurring'),
-          ],
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(kToolbarHeight),
+        child: Container(
+          color: Theme.of(context).colorScheme.surface,
+          child: TabBar(
+            controller: _tabController,
+            tabs: const [
+              Tab(text: 'Regular Expenses'),
+              Tab(text: 'Recurring Expenses'),
+            ],
+            labelColor: Theme.of(context).colorScheme.primary,
+            indicatorColor: Theme.of(context).colorScheme.primary,
+          ),
         ),
       ),
       body: TabBarView(
         controller: _tabController,
-        children: const [
+        children: [
           // Regular expenses tab
-          ExpensesListScreen(),
+          const ExpensesListScreen(),
 
-          // Recurring expenses tab
-          RecurringExpenseScreen(),
+          // Recurring expenses tab - pass the key to access state
+          RecurringExpenseScreen(key: _recurringExpenseKey),
         ],
       ),
       floatingActionButton: FloatingActionButton(
@@ -61,12 +73,14 @@ class _CombinedExpensesScreenState extends State<CombinedExpensesScreen>
               ),
             );
           } else {
-            // Toggle recurring expense form
-            // This requires modifying the RecurringExpenseScreen to expose a method
-            // For simplicity, we'll just switch to the screen and let the user use the + button
+            // Toggle recurring expense form if we can access the state
+            if (_recurringExpenseKey.currentState != null) {
+              _recurringExpenseKey.currentState!.toggleAddForm();
+            }
           }
         },
-        tooltip: 'Add Expense',
+        tooltip:
+            _tabController.index == 0 ? 'Add Expense' : 'Add Recurring Expense',
         child: const Icon(Icons.add),
       ),
     );

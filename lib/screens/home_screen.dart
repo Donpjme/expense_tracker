@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:expense_tracker/providers/theme_provider.dart';
 import 'package:expense_tracker/screens/dashboard_screen.dart';
-import 'package:expense_tracker/screens/expenses_list_screen.dart';
-import 'package:expense_tracker/screens/budget_setting_screen.dart';
+import 'package:expense_tracker/screens/combined_expenses_screen.dart';
+import 'package:expense_tracker/screens/combined_budgets_screen.dart';
 import 'package:expense_tracker/screens/reports_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -37,8 +37,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void _initializeScreens() {
     _screens = [
       DashboardScreen(key: _dashboardKey),
-      ExpensesListScreen(),
-      BudgetSettingScreen(onBudgetAdded: _refreshData),
+      const CombinedExpensesScreen(), // Updated to use the combined expenses screen
+      const CombinedBudgetsScreen(), // Updated to use the combined budgets screen
       ReportsScreen(),
     ];
   }
@@ -114,7 +114,7 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Dashboard',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.list),
+            icon: Icon(Icons.receipt_long),
             label: 'Expenses',
           ),
           BottomNavigationBarItem(
@@ -127,17 +127,28 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        // Add a unique heroTag to fix the hero animation conflict
-        heroTag: 'homeScreenFAB',
-        onPressed: () {
-          Navigator.of(context)
-              .pushNamed('/add_expense')
-              .then((_) => _refreshData());
-        },
-        tooltip: 'Add expense',
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: _currentIndex != 3
+          ? FloatingActionButton(
+              // Add a unique heroTag to fix the hero animation conflict
+              heroTag: 'homeScreenFAB',
+              onPressed: () {
+                if (_currentIndex == 0) {
+                  // From dashboard, add regular expense
+                  Navigator.of(context)
+                      .pushNamed('/add_expense')
+                      .then((_) => _refreshData());
+                } else if (_currentIndex == 1) {
+                  // Let the CombinedExpensesScreen handle this based on selected tab
+                  // The FAB in CombinedExpensesScreen will handle the appropriate action
+                } else if (_currentIndex == 2) {
+                  // Let the CombinedBudgetsScreen handle this
+                  // No specific action needed as budgets are managed within the screen
+                }
+              },
+              tooltip: 'Add',
+              child: const Icon(Icons.add),
+            )
+          : null, // Hide FAB on reports screen
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
     );
   }

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../models/recurring_budget.dart';
 import '../models/category.dart';
 import '../services/database_service.dart';
+import 'package:logger/logger.dart';
 
 /// Screen for managing recurring budgets
 class RecurringBudgetScreen extends StatefulWidget {
@@ -14,12 +15,13 @@ class RecurringBudgetScreen extends StatefulWidget {
   });
 
   @override
-  _RecurringBudgetScreenState createState() => _RecurringBudgetScreenState();
+  RecurringBudgetScreenState createState() => RecurringBudgetScreenState();
 }
 
-class _RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
+class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
   final _formKey = GlobalKey<FormState>();
   final _budgetLimitController = TextEditingController();
+  final _logger = Logger();
   DateTime _startDate = DateTime.now();
   String? _selectedFrequency;
   String? _selectedCategory;
@@ -43,11 +45,11 @@ class _RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
       _startDate = widget.budgetToEdit!.startDate;
     }
 
-    _loadData();
+    loadData();
   }
 
   /// Load categories and recurring budgets from the database
-  Future<void> _loadData() async {
+  Future<void> loadData() async {
     setState(() {
       _isLoading = true;
     });
@@ -68,18 +70,21 @@ class _RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
         }
       });
     } catch (e) {
+      _logger.e('Error loading data: $e');
       if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load data: $e')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load data: $e')),
+        );
+      }
     }
   }
 
-  /// Toggle the add/edit form visibility
-  void _toggleAddForm() {
+  /// Toggle the add/edit form visibility - exposed for external access
+  void toggleAddForm() {
     setState(() {
       _isAddingNew = !_isAddingNew;
       if (!_isAddingNew && !_isEditing) {
@@ -159,7 +164,7 @@ class _RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
         _resetForm();
 
         // Reload data
-        await _loadData();
+        await loadData();
 
         // Toggle form visibility
         setState(() {
@@ -167,13 +172,16 @@ class _RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
           _isEditing = false;
         });
       } catch (e) {
+        _logger.e('Error saving recurring budget: $e');
         if (!mounted) return;
         setState(() {
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save recurring budget: $e')),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to save recurring budget: $e')),
+          );
+        }
       }
     }
   }
@@ -209,100 +217,151 @@ class _RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_isEditing ? 'Edit Recurring Budget' : 'Recurring Budgets'),
-        actions: [
-          if (!_isEditing) // Only show add/cancel button if not in edit mode
-            IconButton(
-              icon: Icon(_isAddingNew ? Icons.close : Icons.add),
-              onPressed: _toggleAddForm,
-              tooltip: _isAddingNew ? 'Cancel' : 'Add New',
-            ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                if (_isAddingNew) _buildAddForm(),
-                if (!_isAddingNew ||
-                    _isEditing) // Only show list when not adding new and not editing
-                  Expanded(
-                    child: _recurringBudgets.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.account_balance_wallet,
-                                  size: 64,
-                                  color: Colors.grey,
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'No recurring budgets yet',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium
-                                      ?.copyWith(
-                                        color: Colors.grey,
-                                      ),
-                                ),
-                                const SizedBox(height: 16),
-                                ElevatedButton(
-                                  onPressed: _toggleAddForm,
-                                  child: const Text(
-                                      'Add Your First Recurring Budget'),
-                                ),
-                              ],
-                            ),
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.all(16),
-                            itemCount: _recurringBudgets.length,
-                            itemBuilder: (context, index) {
-                              final budget = _recurringBudgets[index];
-                              return Card(
-                                margin: const EdgeInsets.only(bottom: 12),
-                                child: ListTile(
-                                  title: Text(
-                                    budget.category,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.bold),
-                                  ),
-                                  subtitle: Text(
-                                    '${budget.frequency} • Next: ${DateFormat('MMM d, yyyy').format(budget.nextDate)}',
-                                  ),
-                                  trailing: Text(
-                                    '\$${budget.budgetLimit.toStringAsFixed(2)}',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                      color:
-                                          Theme.of(context).colorScheme.primary,
+    // No more appbar since this will be used in tab view
+    return _isLoading
+        ? const Center(child: CircularProgressIndicator())
+        : Column(
+            children: [
+              if (_isAddingNew) _buildAddForm(),
+              if (!_isAddingNew ||
+                  _isEditing) // Only show list when not adding new and not editing
+                Expanded(
+                  child: _recurringBudgets.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.account_balance_wallet,
+                                size: 64,
+                                color: Colors.grey,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No recurring budgets yet',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(
+                                      color: Colors.grey,
                                     ),
-                                  ),
-                                  leading: CircleAvatar(
-                                    backgroundColor: Theme.of(context)
-                                        .colorScheme
-                                        .primary
-                                        .withOpacity(0.1),
-                                    child: Icon(
-                                      Icons.account_balance_wallet,
-                                      color:
-                                          Theme.of(context).colorScheme.primary,
-                                    ),
-                                  ),
-                                  onTap: () => _showBudgetDetails(budget),
-                                ),
-                              );
-                            },
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton(
+                                onPressed: toggleAddForm,
+                                child: const Text(
+                                    'Add Your First Recurring Budget'),
+                              ),
+                            ],
                           ),
-                  ),
-              ],
-            ),
-    );
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _recurringBudgets.length,
+                          itemBuilder: (context, index) {
+                            final budget = _recurringBudgets[index];
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              child: Column(
+                                children: [
+                                  ListTile(
+                                    title: Text(
+                                      budget.category,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.bold),
+                                    ),
+                                    subtitle: Text(
+                                      '${budget.frequency} • Next: ${DateFormat('MMM d, yyyy').format(budget.nextDate)}',
+                                    ),
+                                    trailing: Text(
+                                      '\$${budget.budgetLimit.toStringAsFixed(2)}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
+                                      ),
+                                    ),
+                                    leading: CircleAvatar(
+                                      backgroundColor: Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                          .withOpacity(0.1),
+                                      child: Icon(
+                                        Icons.sync,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
+                                      ),
+                                    ),
+                                  ),
+                                  // Action buttons
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                        right: 8, bottom: 8, left: 8),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        // Edit button
+                                        TextButton.icon(
+                                          icon: Icon(
+                                            Icons.edit,
+                                            size: 20,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary,
+                                          ),
+                                          label: Text(
+                                            'Edit',
+                                            style: TextStyle(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primary,
+                                            ),
+                                          ),
+                                          style: TextButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 8,
+                                            ),
+                                          ),
+                                          onPressed: () => _editBudget(budget),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        // Delete button
+                                        TextButton.icon(
+                                          icon: const Icon(
+                                            Icons.delete,
+                                            size: 20,
+                                            color: Colors.red,
+                                          ),
+                                          label: const Text(
+                                            'Delete',
+                                            style: TextStyle(
+                                              color: Colors.red,
+                                            ),
+                                          ),
+                                          style: TextButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 8,
+                                            ),
+                                          ),
+                                          onPressed: () =>
+                                              _deleteBudget(budget),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                ),
+            ],
+          );
   }
 
   /// Form for adding or editing a recurring budget
@@ -442,57 +501,20 @@ class _RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
                 },
                 child: const Text('Cancel'),
               ),
+            // Add a cancel button when adding new (not editing)
+            if (!_isEditing && _isAddingNew)
+              TextButton(
+                onPressed: toggleAddForm,
+                child: const Text('Cancel'),
+              ),
           ],
         ),
-      ),
-    );
-  }
-
-  /// Show details of a recurring budget
-  void _showBudgetDetails(RecurringBudget budget) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Recurring Budget Details'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildDetailRow('Category:', budget.category),
-            _buildDetailRow(
-                'Budget Limit:', '\$${budget.budgetLimit.toStringAsFixed(2)}'),
-            _buildDetailRow('Frequency:', budget.frequency),
-            _buildDetailRow('Start Date:',
-                DateFormat('MMM dd, yyyy').format(budget.startDate)),
-            _buildDetailRow('Next Renewal:',
-                DateFormat('MMM dd, yyyy').format(budget.nextDate)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-          TextButton(
-            onPressed: () => _editBudget(budget),
-            child: const Text('Edit'),
-          ),
-          TextButton(
-            onPressed: () => _deleteBudget(budget),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.red,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
       ),
     );
   }
 
   /// Edit a recurring budget
   void _editBudget(RecurringBudget budget) {
-    Navigator.pop(context); // Close the details dialog
-
     // If we're on the main recurring budget screen, load data into form
     if (widget.budgetToEdit == null) {
       setState(() {
@@ -508,37 +530,19 @@ class _RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
       Navigator.of(context).pop(); // Return to previous screen
 
       // Navigate to edit screen for this budget
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => RecurringBudgetScreen(budgetToEdit: budget),
-        ),
-      );
+      Navigator.of(context)
+          .push(
+            MaterialPageRoute(
+              builder: (context) => RecurringBudgetScreen(budgetToEdit: budget),
+            ),
+          )
+          .then((_) => loadData());
     }
   }
 
-  /// Format detail rows in the details dialog
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(value),
-          ),
-        ],
-      ),
-    );
-  }
+  // Removed _showBudgetDetails method since it's now handled inline
+
+  // Removed unused _buildDetailRow method
 
   /// Delete a recurring budget
   Future<void> _deleteBudget(RecurringBudget budget) async {
@@ -570,12 +574,9 @@ class _RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
         await DatabaseService().deleteRecurringBudget(budget.id);
 
         // Reload data
-        await _loadData();
+        await loadData();
 
         if (!mounted) return;
-
-        // Close the details dialog
-        Navigator.of(context).pop();
 
         // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
@@ -585,6 +586,7 @@ class _RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
           ),
         );
       } catch (e) {
+        _logger.e('Error deleting recurring budget: $e');
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to delete recurring budget: $e')),

@@ -39,7 +39,7 @@ class MyApp extends StatelessWidget {
               theme: AppTheme.light(),
               darkTheme: AppTheme.dark(),
               themeMode: themeProvider.themeMode,
-              home: AuthCheckScreen(),
+              home: const AuthCheckScreen(),
               routes: {
                 '/home': (context) => const HomeScreen(),
                 '/security_settings': (context) => const PinSetupScreen(),
@@ -56,6 +56,8 @@ class MyApp extends StatelessWidget {
 }
 
 class AuthCheckScreen extends StatefulWidget {
+  const AuthCheckScreen({super.key});
+
   @override
   _AuthCheckScreenState createState() => _AuthCheckScreenState();
 }

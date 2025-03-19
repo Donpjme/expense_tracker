@@ -15,10 +15,10 @@ class RecurringExpenseScreen extends StatefulWidget {
   });
 
   @override
-  State<RecurringExpenseScreen> createState() => _RecurringExpenseScreenState();
+  RecurringExpenseScreenState createState() => RecurringExpenseScreenState();
 }
 
-class _RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
+class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _amountController = TextEditingController();
@@ -47,11 +47,11 @@ class _RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
       _startDate = widget.expenseToEdit!.startDate;
     }
 
-    _loadData();
+    loadData();
   }
 
   /// Load categories and recurring expenses from the database
-  Future<void> _loadData() async {
+  Future<void> loadData() async {
     setState(() {
       _isLoading = true;
     });
@@ -85,8 +85,8 @@ class _RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
     }
   }
 
-  /// Toggle the add/edit form visibility
-  void _toggleAddForm() {
+  /// Toggle the add/edit form visibility - Exposed for external access
+  void toggleAddForm() {
     setState(() {
       _isAddingNew = !_isAddingNew;
       if (!_isAddingNew && !_isEditing) {
@@ -104,6 +104,8 @@ class _RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
     _selectedFrequency = 'Monthly';
     _startDate = DateTime.now();
   }
+
+  // Rest of the methods remain the same...
 
   /// Save or update a recurring expense
   Future<void> _saveRecurringExpense() async {
@@ -171,7 +173,7 @@ class _RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
         _resetForm();
 
         // Reload data
-        await _loadData();
+        await loadData();
 
         // Toggle form visibility
         setState(() {
@@ -225,169 +227,156 @@ class _RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title:
-            Text(_isEditing ? 'Edit Recurring Expense' : 'Recurring Expenses'),
-        actions: [
-          if (!_isEditing) // Only show add/cancel button if not in edit mode
-            IconButton(
-              icon: Icon(_isAddingNew ? Icons.close : Icons.add),
-              onPressed: _toggleAddForm,
-              tooltip: _isAddingNew ? 'Cancel' : 'Add New',
-            ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                if (_isAddingNew) _buildAddForm(),
-                if (!_isAddingNew ||
-                    _isEditing) // Only show list when not adding new and not editing
-                  Expanded(
-                    child: _recurringExpenses.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.repeat,
-                                  size: 64,
-                                  color: Colors.grey,
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'No recurring expenses yet',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium
-                                      ?.copyWith(
-                                        color: Colors.grey,
-                                      ),
-                                ),
-                                const SizedBox(height: 16),
-                                ElevatedButton(
-                                  onPressed: _toggleAddForm,
-                                  child: const Text(
-                                      'Add Your First Recurring Expense'),
-                                ),
-                              ],
-                            ),
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.all(16),
-                            itemCount: _recurringExpenses.length,
-                            itemBuilder: (context, index) {
-                              final expense = _recurringExpenses[index];
-                              return Card(
-                                margin: const EdgeInsets.only(bottom: 12),
-                                child: Column(
-                                  children: [
-                                    ListTile(
-                                      title: Text(
-                                        expense.title,
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.bold),
-                                      ),
-                                      subtitle: Text(
-                                        '${expense.frequency} • Next: ${DateFormat('MMM d, yyyy').format(expense.nextDate)}',
-                                      ),
-                                      trailing: Text(
-                                        '\$${expense.amount.toStringAsFixed(2)}',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                          color: expense.amount > 100
-                                              ? Colors.red
-                                              : Colors.green,
-                                        ),
-                                      ),
-                                      leading: CircleAvatar(
-                                        backgroundColor: Theme.of(context)
-                                            .colorScheme
-                                            .primary
-                                            .withOpacity(0.1),
-                                        child: Icon(
-                                          Icons.repeat,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .primary,
-                                        ),
+    // We'll remove the AppBar since this will be used in a tab view
+    return _isLoading
+        ? const Center(child: CircularProgressIndicator())
+        : Column(
+            children: [
+              if (_isAddingNew) _buildAddForm(),
+              if (!_isAddingNew ||
+                  _isEditing) // Only show list when not adding new and not editing
+                Expanded(
+                  child: _recurringExpenses.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.repeat,
+                                size: 64,
+                                color: Colors.grey,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No recurring expenses yet',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(
+                                      color: Colors.grey,
+                                    ),
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton(
+                                onPressed: toggleAddForm,
+                                child: const Text(
+                                    'Add Your First Recurring Expense'),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _recurringExpenses.length,
+                          itemBuilder: (context, index) {
+                            final expense = _recurringExpenses[index];
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              child: Column(
+                                children: [
+                                  ListTile(
+                                    title: Text(
+                                      expense.title,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.bold),
+                                    ),
+                                    subtitle: Text(
+                                      '${expense.frequency} • Next: ${DateFormat('MMM d, yyyy').format(expense.nextDate)}',
+                                    ),
+                                    trailing: Text(
+                                      '\$${expense.amount.toStringAsFixed(2)}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: expense.amount > 100
+                                            ? Colors.red
+                                            : Colors.green,
                                       ),
                                     ),
-                                    // Action buttons
-                                    Padding(
-                                      padding: const EdgeInsets.only(
-                                          right: 8, bottom: 8, left: 8),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.end,
-                                        children: [
-                                          // Edit button
-                                          TextButton.icon(
-                                            icon: Icon(
-                                              Icons.edit,
-                                              size: 20,
+                                    leading: CircleAvatar(
+                                      backgroundColor: Theme.of(context)
+                                          .colorScheme
+                                          .primary
+                                          .withOpacity(0.1),
+                                      child: Icon(
+                                        Icons.repeat,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
+                                      ),
+                                    ),
+                                  ),
+                                  // Action buttons
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                        right: 8, bottom: 8, left: 8),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        // Edit button
+                                        TextButton.icon(
+                                          icon: Icon(
+                                            Icons.edit,
+                                            size: 20,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary,
+                                          ),
+                                          label: Text(
+                                            'Edit',
+                                            style: TextStyle(
                                               color: Theme.of(context)
                                                   .colorScheme
                                                   .primary,
                                             ),
-                                            label: Text(
-                                              'Edit',
-                                              style: TextStyle(
-                                                color: Theme.of(context)
-                                                    .colorScheme
-                                                    .primary,
-                                              ),
-                                            ),
-                                            style: TextButton.styleFrom(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 8,
-                                              ),
-                                            ),
-                                            onPressed: () =>
-                                                _editExpense(expense),
                                           ),
-                                          const SizedBox(width: 8),
-                                          // Delete button
-                                          TextButton.icon(
-                                            icon: const Icon(
-                                              Icons.delete,
-                                              size: 20,
+                                          style: TextButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 8,
+                                            ),
+                                          ),
+                                          onPressed: () =>
+                                              _editExpense(expense),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        // Delete button
+                                        TextButton.icon(
+                                          icon: const Icon(
+                                            Icons.delete,
+                                            size: 20,
+                                            color: Colors.red,
+                                          ),
+                                          label: const Text(
+                                            'Delete',
+                                            style: TextStyle(
                                               color: Colors.red,
                                             ),
-                                            label: const Text(
-                                              'Delete',
-                                              style: TextStyle(
-                                                color: Colors.red,
-                                              ),
-                                            ),
-                                            style: TextButton.styleFrom(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 12,
-                                                vertical: 8,
-                                              ),
-                                            ),
-                                            onPressed: () =>
-                                                _deleteExpense(expense),
                                           ),
-                                        ],
-                                      ),
+                                          style: TextButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 8,
+                                            ),
+                                          ),
+                                          onPressed: () =>
+                                              _deleteExpense(expense),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-              ],
-            ),
-    );
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                ),
+            ],
+          );
   }
+
+  // The remaining methods from the original file would go here...
+  // I'm omitting them for brevity, but they should be included as-is
 
   /// Form for adding or editing a recurring expense
   Widget _buildAddForm() {
@@ -541,6 +530,12 @@ class _RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
                 },
                 child: const Text('Cancel'),
               ),
+            // Add a cancel button when adding new (not editing)
+            if (!_isEditing && _isAddingNew)
+              TextButton(
+                onPressed: toggleAddForm,
+                child: const Text('Cancel'),
+              ),
           ],
         ),
       ),
@@ -603,7 +598,7 @@ class _RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
         await DatabaseService().deleteRecurringExpense(expense.id);
 
         // Reload data
-        await _loadData();
+        await loadData();
 
         if (!mounted) return;
 
