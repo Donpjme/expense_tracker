@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:expense_tracker/services/database_service.dart';
+import 'package:expense_tracker/providers/currency_provider.dart';
 import 'package:expense_tracker/widgets/summary_card.dart';
 import 'package:expense_tracker/widgets/budget_progress_card.dart';
 import 'package:expense_tracker/widgets/analytics_dashboard_widget.dart';
@@ -101,6 +103,9 @@ class DashboardScreenState extends State<DashboardScreen> {
     final spendingByCategory = _spendingByCategory;
     final budgetByCategory = _budgetByCategory;
 
+    // Access the currency provider
+    final currencyProvider = Provider.of<CurrencyProvider>(context);
+
     // Predefine colors for consistent categories
     final Map<String, Color> categoryColors = {
       'Food': Colors.orange,
@@ -127,7 +132,8 @@ class DashboardScreenState extends State<DashboardScreen> {
                       Expanded(
                         child: SummaryCard(
                           title: 'This Month',
-                          value: '\$${_totalSpentThisMonth.toStringAsFixed(2)}',
+                          value: currencyProvider
+                              .formatAmount(_totalSpentThisMonth),
                           icon: Icons.account_balance_wallet,
                           color: Theme.of(context).colorScheme.primary,
                           onTap: () {
@@ -145,7 +151,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                       Expanded(
                         child: SummaryCard(
                           title: 'Total Budget',
-                          value: '\$${_totalBudget.toStringAsFixed(2)}',
+                          value: currencyProvider.formatAmount(_totalBudget),
                           icon: Icons.account_balance_wallet,
                           color: Theme.of(context).colorScheme.secondary,
                         ),
@@ -265,7 +271,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                             '${expense.category} • ${_formatDate(expense.date)}',
                           ),
                           trailing: Text(
-                            '\$${expense.amount.toStringAsFixed(2)}',
+                            currencyProvider.formatAmount(expense.amount),
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               color: expense.amount > 100 ? Colors.red : null,

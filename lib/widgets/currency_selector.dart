@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/currency_service.dart';
+import '../providers/currency_provider.dart';
 
 class CurrencySelector extends StatelessWidget {
   final String selectedCurrency;
@@ -41,9 +43,11 @@ class CurrencySelector extends StatelessWidget {
 
 class CurrencyPickerDialog extends StatefulWidget {
   final String initialCurrency;
+  final bool allowChangingGlobalCurrency;
 
   const CurrencyPickerDialog({
     required this.initialCurrency,
+    this.allowChangingGlobalCurrency = false,
     super.key,
   });
 
@@ -70,7 +74,9 @@ class _CurrencyPickerDialogState extends State<CurrencyPickerDialog> {
         .toList();
 
     return AlertDialog(
-      title: const Text('Select Currency'),
+      title: Text(widget.allowChangingGlobalCurrency
+          ? 'Select App Currency'
+          : 'Select Currency'),
       content: Container(
         width: double.maxFinite,
         constraints: BoxConstraints(
@@ -128,8 +134,19 @@ class _CurrencyPickerDialogState extends State<CurrencyPickerDialog> {
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          onPressed: () => Navigator.of(context).pop(_selectedCurrency),
-          child: const Text('Select'),
+          onPressed: () {
+            if (widget.allowChangingGlobalCurrency) {
+              // Change the app's global currency
+              final currencyProvider =
+                  Provider.of<CurrencyProvider>(context, listen: false);
+              final symbol =
+                  _currencyService.currencySymbols[_selectedCurrency] ??
+                      _selectedCurrency;
+              currencyProvider.setCurrency(_selectedCurrency, symbol);
+            }
+            Navigator.of(context).pop(_selectedCurrency);
+          },
+          child: Text(widget.allowChangingGlobalCurrency ? 'Apply' : 'Select'),
         ),
       ],
     );

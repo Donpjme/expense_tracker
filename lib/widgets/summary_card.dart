@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 class SummaryCard extends StatelessWidget {
   final String title;
-  final String value;
+  final String value; // Now accepts formatted value with currency
   final IconData icon;
   final Color color;
   final VoidCallback? onTap;
@@ -53,7 +53,7 @@ class SummaryCard extends StatelessWidget {
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  value,
+                  value, // Already formatted with currency symbol
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
