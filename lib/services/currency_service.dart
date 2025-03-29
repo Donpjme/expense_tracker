@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
 
@@ -13,32 +14,32 @@ class CurrencyService {
   Map<String, dynamic>? _exchangeRates;
   DateTime? _lastUpdated;
 
-  // Simplified keys for SharedPreferences
-  static const String _currencyKey = 'app_currency';
-  static const String _exchangeRatesKey = 'exchange_rates';
-  static const String _ratesLastUpdatedKey = 'rates_last_updated';
+  // Keys for SharedPreferences
+  static const String _currencyCodeKey = 'currency_code';
+  static const String _currencySymbolKey = 'currency_symbol';
+  static const String _defaultCurrencyKey = 'defaultCurrency';
 
-  // List of supported currencies (sorted alphabetically)
+  // List of supported currencies
   final List<String> supportedCurrencies = [
+    'USD',
+    'EUR',
+    'GBP',
+    'JPY',
     'AUD',
-    'BRL',
     'CAD',
     'CHF',
     'CNY',
-    'EUR',
-    'GBP',
-    'HKD',
     'INR',
-    'JPY',
-    'KRW',
+    'BRL',
     'MXN',
-    'NGN',
-    'NZD',
-    'RUB',
     'SEK',
     'SGD',
-    'USD',
+    'HKD',
+    'NZD',
     'ZAR',
+    'RUB',
+    'KRW',
+    'NGN'
   ];
 
   // Currency symbols for formatting
@@ -64,9 +65,8 @@ class CurrencyService {
     'NGN': '₦',
   };
 
-  // App's currency
-  String _appCurrency = 'USD';
-  String _appCurrencySymbol = '\$';
+  // User's default currency (stored in shared preferences)
+  String _defaultCurrency = 'USD';
   bool _isInitialized = false;
 
   // Initialize and load saved currency preference
@@ -75,28 +75,13 @@ class CurrencyService {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-
-      // Get saved currency or default to USD
-      final savedCurrency = prefs.getString(_currencyKey);
-      if (savedCurrency != null) {
-        final parts = savedCurrency.split('|');
-        if (parts.length == 2) {
-          _appCurrency = parts[0];
-          _appCurrencySymbol = parts[1];
-        } else {
-          _appCurrency = 'USD';
-          _appCurrencySymbol = '\$';
-        }
-      } else {
-        _appCurrency = 'USD';
-        _appCurrencySymbol = '\$';
-      }
+      _defaultCurrency = prefs.getString(_defaultCurrencyKey) ?? 'USD';
 
       // Try to load cached exchange rates
-      final cachedRates = prefs.getString(_exchangeRatesKey);
+      final cachedRates = prefs.getString('exchangeRates');
       if (cachedRates != null) {
         _exchangeRates = jsonDecode(cachedRates);
-        final cachedDate = prefs.getString(_ratesLastUpdatedKey);
+        final cachedDate = prefs.getString('ratesLastUpdated');
         if (cachedDate != null) {
           _lastUpdated = DateTime.parse(cachedDate);
         }
@@ -104,45 +89,83 @@ class CurrencyService {
 
       _isInitialized = true;
       _logger.i(
-          'CurrencyService initialized with currency: $_appCurrency ($_appCurrencySymbol)');
+          'CurrencyService initialized with default currency: $_defaultCurrency');
     } catch (e) {
       _logger.e('Error initializing CurrencyService: $e');
       // Default to USD if there's an error
-      _appCurrency = 'USD';
-      _appCurrencySymbol = '\$';
+      _defaultCurrency = 'USD';
     }
   }
 
-  // Get app's currency code
-  Future<String> getCurrencyCode() async {
-    await initialize();
-    return _appCurrency;
-  }
+  // Get user's preferred currency
+  String get defaultCurrency => _defaultCurrency;
 
-  // Get app's currency symbol
-  Future<String> getCurrencySymbol() async {
-    await initialize();
-    return _appCurrencySymbol;
-  }
+  // Set user's preferred currency
+  Future<void> setDefaultCurrency(String currency) async {
+    if (!supportedCurrencies.contains(currency)) {
+      throw Exception('Unsupported currency: $currency');
+    }
 
-  // Set the app's currency code and symbol
-  Future<bool> setCurrency(String currencyCode, String currencySymbol) async {
     try {
-      if (!supportedCurrencies.contains(currencyCode)) {
-        throw Exception('Unsupported currency: $currencyCode');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_defaultCurrencyKey, currency);
+      _defaultCurrency = currency;
+      _logger.i('Default currency set to: $currency');
+    } catch (e) {
+      _logger.e('Error setting default currency: $e');
+      rethrow;
+    }
+  }
+
+  // Get the current currency code (e.g., 'USD')
+  Future<String> getCurrencyCode() async {
+    await initialize(); // Ensure service is initialized
+
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getString(_currencyCodeKey) ?? _defaultCurrency;
+    } catch (e) {
+      _logger.e('Error getting currency code: $e');
+      return _defaultCurrency; // Return default on error
+    }
+  }
+
+  // Get the current currency symbol (e.g., '$')
+  Future<String> getCurrencySymbol() async {
+    await initialize(); // Ensure service is initialized
+
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      String symbol = preferences.getString(_currencySymbolKey) ?? '';
+
+      if (symbol.isEmpty) {
+        // If no symbol is saved, get the symbol for the current currency code
+        final code = await getCurrencyCode();
+        symbol = currencySymbols[code] ?? '\$';
       }
 
-      final prefs = await SharedPreferences.getInstance();
+      return symbol;
+    } catch (e) {
+      _logger.e('Error getting currency symbol: $e');
+      return '\$'; // Return default on error
+    }
+  }
 
-      // Store as "USD|$" format
-      final currencyString = '$currencyCode|$currencySymbol';
-      await prefs.setString(_currencyKey, currencyString);
+  // Set the currency code and symbol
+  Future<bool> setCurrency(String currencyCode, String currencySymbol) async {
+    await initialize(); // Ensure service is initialized
 
-      // Update in-memory values
-      _appCurrency = currencyCode;
-      _appCurrencySymbol = currencySymbol;
+    try {
+      final preferences = await SharedPreferences.getInstance();
 
-      _logger.i('Currency set to: $currencyCode ($currencySymbol)');
+      // Save both values
+      await preferences.setString(_currencyCodeKey, currencyCode);
+      await preferences.setString(_currencySymbolKey, currencySymbol);
+      // Also update default currency for compatibility
+      await preferences.setString(_defaultCurrencyKey, currencyCode);
+      _defaultCurrency = currencyCode;
+
+      _logger.i('Currency updated: $currencyCode ($currencySymbol)');
       return true;
     } catch (e) {
       _logger.e('Error setting currency: $e');
@@ -152,6 +175,8 @@ class CurrencyService {
 
   // Fetch latest exchange rates from an API
   Future<Map<String, dynamic>> getExchangeRates() async {
+    await initialize(); // Ensure service is initialized
+
     try {
       // Check if we have recent rates cached (refresh every 24 hours)
       if (_exchangeRates != null && _lastUpdated != null) {
@@ -163,8 +188,44 @@ class CurrencyService {
 
       // If not, fetch new rates
       // Note: You'll need to sign up for an API key with a service like Open Exchange Rates
-      // or implement a different approach for a real app
-      final demoRates = {
+      // For demonstration, replace YOUR_API_KEY with your actual API key
+      const apiKey = 'YOUR_API_KEY';
+      final response = await http.get(
+        Uri.parse(
+            'https://openexchangerates.org/api/latest.json?app_id=$apiKey'),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        _exchangeRates = data['rates'];
+        _lastUpdated = DateTime.now();
+
+        // Cache the rates in shared preferences for offline use
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('exchangeRates', jsonEncode(_exchangeRates));
+        await prefs.setString(
+            'ratesLastUpdated', _lastUpdated!.toIso8601String());
+
+        _logger.i('Exchange rates updated successfully');
+        return _exchangeRates!;
+      } else {
+        // Try to use cached rates if available
+        if (_exchangeRates != null) {
+          _logger.w(
+              'Failed to fetch new rates, using cached rates from: ${_lastUpdated?.toIso8601String()}');
+          return _exchangeRates!;
+        }
+
+        throw Exception(
+            'Failed to load exchange rates. Status code: ${response.statusCode}');
+      }
+    } catch (e) {
+      _logger.e('Error fetching exchange rates: $e');
+
+      // Use demo exchange rates if we can't fetch from API
+      // These are approximate rates as of early 2025 and should be updated
+      // with real data in production
+      return {
         "USD": 1,
         "EUR": 0.92,
         "GBP": 0.78,
@@ -185,65 +246,26 @@ class CurrencyService {
         "KRW": 1335.12,
         "NGN": 1520.50
       };
-
-      _exchangeRates = demoRates;
-      _lastUpdated = DateTime.now();
-
-      // Cache the rates in shared preferences for offline use
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_exchangeRatesKey, jsonEncode(_exchangeRates));
-      await prefs.setString(
-          _ratesLastUpdatedKey, _lastUpdated!.toIso8601String());
-
-      _logger.i('Exchange rates updated');
-      return _exchangeRates!;
-    } catch (e) {
-      _logger.e('Error fetching exchange rates: $e');
-
-      // Use fallback if we have no rates
-      if (_exchangeRates == null) {
-        return {
-          "USD": 1,
-          "EUR": 0.92,
-          "GBP": 0.78,
-          "JPY": 151.20,
-          "AUD": 1.52,
-          "CAD": 1.36,
-          "CHF": 0.89,
-          "CNY": 7.21,
-          "INR": 83.45,
-          "BRL": 5.07,
-          "MXN": 17.03,
-          "SEK": 10.42,
-          "SGD": 1.34,
-          "HKD": 7.82,
-          "NZD": 1.62,
-          "ZAR": 18.42,
-          "RUB": 91.30,
-          "KRW": 1335.12,
-          "NGN": 1520.50
-        };
-      }
-
-      // Otherwise return cached rates
-      return _exchangeRates!;
     }
   }
 
   // Convert amount from one currency to another
   Future<double> convertCurrency(
       double amount, String fromCurrency, String toCurrency) async {
+    await initialize(); // Ensure service is initialized
+
     try {
       // If currencies are the same, no conversion needed
       if (fromCurrency == toCurrency) {
         return amount;
       }
 
-      await initialize();
       final rates = await getExchangeRates();
 
-      // Rates are based on USD as the base currency
-      // Convert to USD first, then to target currency
+      // Rates are typically based on USD as the base currency
+      // So we need to convert to USD first, then to the target currency
+
+      // Convert amount to USD
       double amountInUSD;
       if (fromCurrency == 'USD') {
         amountInUSD = amount;
@@ -270,47 +292,103 @@ class CurrencyService {
     }
   }
 
-  // Format currency amount
-  Future<String> formatAmount(double amount, String currencyCode) async {
-    await initialize();
+  // Get historical exchange rate (for a specific date)
+  Future<double> getHistoricalRate(
+      DateTime date, String fromCurrency, String toCurrency) async {
+    await initialize(); // Ensure service is initialized
 
     try {
+      // Format date as YYYY-MM-DD
+      final formattedDate =
+          '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+      // Note: Replace YOUR_API_KEY with your actual API key
+      const apiKey = 'YOUR_API_KEY';
+      final response = await http.get(
+        Uri.parse(
+            'https://openexchangerates.org/api/historical/$formattedDate.json?app_id=$apiKey'),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final rates = data['rates'];
+
+        // Convert using historical rates (same logic as convertCurrency)
+        if (fromCurrency == toCurrency) return 1.0;
+
+        if (fromCurrency == 'USD') {
+          return rates[toCurrency];
+        } else if (toCurrency == 'USD') {
+          return 1 / rates[fromCurrency];
+        } else {
+          return rates[toCurrency] / rates[fromCurrency];
+        }
+      } else {
+        _logger.w('Failed to fetch historical rates, using current rates');
+        // Fallback to current rates
+        return await getRateBetween(fromCurrency, toCurrency);
+      }
+    } catch (e) {
+      _logger.e('Error getting historical rate: $e');
+      // Fallback to current rates
+      return await getRateBetween(fromCurrency, toCurrency);
+    }
+  }
+
+  // Get the exchange rate between two currencies
+  Future<double> getRateBetween(String fromCurrency, String toCurrency) async {
+    await initialize(); // Ensure service is initialized
+
+    try {
+      final rates = await getExchangeRates();
+
+      if (fromCurrency == toCurrency) return 1.0;
+
+      if (fromCurrency == 'USD') {
+        return rates[toCurrency];
+      } else if (toCurrency == 'USD') {
+        return 1 / rates[fromCurrency];
+      } else {
+        // Convert via USD
+        return rates[toCurrency] / rates[fromCurrency];
+      }
+    } catch (e) {
+      _logger.e('Error getting rate between currencies: $e');
+      return 1.0; // Default to 1:1 rate if error
+    }
+  }
+
+  // Format amount with currency code from params or stored preference
+  Future<String> formatCurrency(double amount, [String? currency]) async {
+    await initialize(); // Ensure service is initialized
+
+    try {
+      // Use provided currency or get saved currency
+      final String currencyCode = currency ?? await getCurrencyCode();
       final symbol = currencySymbols[currencyCode] ?? currencyCode;
 
-      // For JPY and KRW, no decimal places
+      // For JPY and some other currencies, no decimal places
       if (currencyCode == 'JPY' || currencyCode == 'KRW') {
         return '$symbol${amount.round()}';
       }
 
-      // For other currencies, 2 decimal places
+      // Format with 2 decimal places for most currencies
       return '$symbol${amount.toStringAsFixed(2)}';
     } catch (e) {
-      _logger.e('Error formatting amount: $e');
-      return '$currencyCode ${amount.toStringAsFixed(2)}';
+      _logger.e('Error formatting currency: $e');
+      final currencyToUse = currency ?? 'USD';
+      return '$currencyToUse${amount.toStringAsFixed(2)}';
     }
   }
 
-  // Format amount using app's currency
-  Future<String> formatAmountWithAppCurrency(double amount) async {
-    await initialize();
-    return formatAmount(amount, _appCurrency);
-  }
-
-  // Get exchange rate between two currencies
-  Future<double> getExchangeRate(String fromCurrency, String toCurrency) async {
-    if (fromCurrency == toCurrency) return 1.0;
-
-    final rates = await getExchangeRates();
-
-    if (fromCurrency == 'USD') {
-      return rates[toCurrency] as double;
-    } else if (toCurrency == 'USD') {
-      return 1.0 / (rates[fromCurrency] as double);
+  // Simplified format for numbers (no currency symbol)
+  String formatNumber(double amount, [int decimals = 2]) {
+    if (amount >= 1000000) {
+      return '${(amount / 1000000).toStringAsFixed(1)}M';
+    } else if (amount >= 1000) {
+      return '${(amount / 1000).toStringAsFixed(1)}K';
     } else {
-      // Convert via USD
-      final fromToUSD = 1.0 / (rates[fromCurrency] as double);
-      final usdToTarget = rates[toCurrency] as double;
-      return fromToUSD * usdToTarget;
+      return amount.toStringAsFixed(decimals);
     }
   }
 }

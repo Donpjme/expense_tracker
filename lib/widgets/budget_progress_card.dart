@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:expense_tracker/services/currency_service.dart';
 
-class BudgetProgressCard extends StatelessWidget {
+class BudgetProgressCard extends StatefulWidget {
   final String category;
   final double budgetAmount;
   final double spentAmount;
@@ -27,21 +27,72 @@ class BudgetProgressCard extends StatelessWidget {
     return Colors.red;
   }
 
-  // Format currency in a consistent way
-  String formatAmount(double amount) {
-    final formatter = NumberFormat.currency(
-      symbol: '\$',
-      decimalDigits: 0, // Use 0 digits for cleaner display
-    );
+  @override
+  State<BudgetProgressCard> createState() => _BudgetProgressCardState();
+}
 
-    if (amount >= 10000) {
-      return NumberFormat.compactCurrency(
-        symbol: '\$',
-        decimalDigits: 1,
-      ).format(amount);
+class _BudgetProgressCardState extends State<BudgetProgressCard> {
+  final CurrencyService _currencyService = CurrencyService();
+  String _formattedBudget = '';
+  String _formattedSpent = '';
+  String _formattedOver = '';
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _formatCurrencies();
+  }
+
+  @override
+  void didUpdateWidget(BudgetProgressCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.budgetAmount != widget.budgetAmount ||
+        oldWidget.spentAmount != widget.spentAmount) {
+      _formatCurrencies();
     }
+  }
 
-    return formatter.format(amount);
+  Future<void> _formatCurrencies() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Format the budget amount
+      _formattedBudget =
+          await _currencyService.formatCurrency(widget.budgetAmount);
+
+      // Format the spent amount
+      _formattedSpent =
+          await _currencyService.formatCurrency(widget.spentAmount);
+
+      // Format the over budget amount if applicable
+      if (widget.isOverBudget) {
+        _formattedOver = await _currencyService
+            .formatCurrency(widget.spentAmount - widget.budgetAmount);
+      }
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      // Use fallback formatting if there's an error
+      if (mounted) {
+        setState(() {
+          _formattedBudget = '\$${widget.budgetAmount.toStringAsFixed(2)}';
+          _formattedSpent = '\$${widget.spentAmount.toStringAsFixed(2)}';
+          if (widget.isOverBudget) {
+            _formattedOver =
+                '\$${(widget.spentAmount - widget.budgetAmount).toStringAsFixed(2)}';
+          }
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -60,63 +111,71 @@ class BudgetProgressCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 12,
-                  backgroundColor: categoryColor,
+                  backgroundColor: widget.categoryColor,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    category,
+                    widget.category,
                     style: Theme.of(context).textTheme.titleMedium,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 Text(
-                  '${(progressPercentage * 100).toInt()}%',
+                  '${(widget.progressPercentage * 100).toInt()}%',
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: progressColor,
+                        color: widget.progressColor,
                       ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
             LinearProgressIndicator(
-              value: progressPercentage,
-              color: progressColor,
+              value: widget.progressPercentage,
+              color: widget.progressColor,
               backgroundColor: Colors.grey.shade200,
               minHeight: 8,
               borderRadius: const BorderRadius.all(Radius.circular(4)),
             ),
             const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // Use fitted box for better text scaling
-                Expanded(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '${formatAmount(spentAmount)} spent',
-                      style: Theme.of(context).textTheme.bodyMedium,
+            _isLoading
+                ? const SizedBox(
+                    height: 10,
+                    width: double.infinity,
+                    child: LinearProgressIndicator(
+                      backgroundColor: Colors.transparent,
                     ),
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // Spent amount
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            '$_formattedSpent spent',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      // Budget amount
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            'of $_formattedBudget',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 4),
-                // Use fitted box for better text scaling
-                Expanded(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      'of ${formatAmount(budgetAmount)}',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            if (isOverBudget)
+            if (widget.isOverBudget && !_isLoading)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
                 child: Row(
@@ -129,7 +188,7 @@ class BudgetProgressCard extends StatelessWidget {
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(
-                        'Over by ${formatAmount(spentAmount - budgetAmount)}',
+                        'Over by $_formattedOver',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Colors.red,
                             ),

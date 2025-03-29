@@ -28,7 +28,22 @@ class DatabaseService {
   static const int _databaseVersion =
       6; // Increased for adding currency columns
 
-  DatabaseService._internal();
+  DatabaseService._internal() {
+    // Initialize SQLite factory only once
+    _initSqfliteFactory();
+  }
+
+  void _initSqfliteFactory() {
+    if (kIsWeb) {
+      // For web
+      databaseFactory = databaseFactoryFfiWeb;
+    } else if (Platform.isWindows || Platform.isLinux) {
+      // For desktop platforms
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
+    // For mobile platforms, use default SQLite factory
+  }
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -36,17 +51,19 @@ class DatabaseService {
     return _database!;
   }
 
+  Future<String> _getDatabasePath() async {
+    if (Platform.isIOS || Platform.isAndroid) {
+      // Use the app's documents directory for mobile platforms
+      final appDocumentsDir = await getApplicationDocumentsDirectory();
+      return appDocumentsDir.path;
+    } else {
+      // Use the default database path for other platforms
+      return await getDatabasesPath();
+    }
+  }
+
   Future<Database> _initDatabase() async {
     try {
-      // Initialize sqflite_ffi for non-web platforms
-      if (!kIsWeb) {
-        sqfliteFfiInit();
-        databaseFactory = databaseFactoryFfi;
-      } else {
-        // Initialize sqflite_ffi_web for web platforms
-        databaseFactory = databaseFactoryFfiWeb;
-      }
-
       // Get the database path
       final dbPath = await _getDatabasePath();
       final path = join(dbPath, 'expenses.db');
@@ -72,17 +89,6 @@ class DatabaseService {
     } catch (e) {
       _logger.e('Failed to initialize database: $e');
       rethrow; // Rethrow the exception to handle it in the calling code
-    }
-  }
-
-  Future<String> _getDatabasePath() async {
-    if (Platform.isIOS || Platform.isAndroid) {
-      // Use the app's documents directory for mobile platforms
-      final appDocumentsDir = await getApplicationDocumentsDirectory();
-      return appDocumentsDir.path;
-    } else {
-      // Use the default database path for other platforms
-      return await getDatabasesPath();
     }
   }
 

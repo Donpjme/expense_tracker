@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:expense_tracker/models/expense.dart';
-import 'package:expense_tracker/providers/currency_provider.dart';
+import 'package:expense_tracker/services/currency_service.dart';
 import 'package:intl/intl.dart';
 
 class ExpenseListItem extends StatefulWidget {
@@ -23,53 +22,52 @@ class ExpenseListItem extends StatefulWidget {
 }
 
 class _ExpenseListItemState extends State<ExpenseListItem> {
+  final CurrencyService _currencyService = CurrencyService();
+  bool _isLoading = true;
   String _formattedAmount = '';
   String? _formattedOriginalAmount;
-  bool _isLoading = true;
+  String _defaultCurrency = '';
+  bool _showOriginalAmount = false;
 
   @override
   void initState() {
     super.initState();
-    _formatAmounts();
+    _loadCurrencyData();
   }
 
   @override
   void didUpdateWidget(ExpenseListItem oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // If the expense changed, reformat amounts
-    if (oldWidget.expense != widget.expense) {
-      _formatAmounts();
+    if (oldWidget.expense.amount != widget.expense.amount ||
+        oldWidget.expense.currency != widget.expense.currency ||
+        oldWidget.expense.originalAmount != widget.expense.originalAmount) {
+      _loadCurrencyData();
     }
   }
 
-  Future<void> _formatAmounts() async {
-    if (!mounted) return;
-    
-    setState(() {
-      _isLoading = true;
-    });
-
+  Future<void> _loadCurrencyData() async {
     try {
-      final currencyProvider = Provider.of<CurrencyProvider>(context, listen: false);
-      
-      // If expense currency matches app currency, just format the amount
-      if (widget.expense.currency == currencyProvider.currencyCode) {
-        _formattedAmount = currencyProvider.formatAmount(widget.expense.amount);
-        _formattedOriginalAmount = null;
-      } 
-      // If currencies differ, show both the converted and original amount
-      else {
-        // The amount field should already be stored in the app's currency
-        _formattedAmount = currencyProvider.formatAmount(widget.expense.amount);
-        
-        // Format the original amount if available
-        if (widget.expense.originalAmount != null) {
-          if (widget.expense.currency == 'JPY' || widget.expense.currency == 'KRW') {
-            _formattedOriginalAmount = '${widget.expense.currency} ${widget.expense.originalAmount!.round()}';
-          } else {
-            _formattedOriginalAmount = '${widget.expense.currency} ${widget.expense.originalAmount!.toStringAsFixed(2)}';
-          }
-        }
+      setState(() {
+        _isLoading = true;
+      });
+
+      // Get default currency code
+      _defaultCurrency = await _currencyService.getCurrencyCode();
+
+      // Format the amount
+      _formattedAmount =
+          await _currencyService.formatCurrency(widget.expense.amount);
+
+      // Format original amount if it exists and is different from default currency
+      _showOriginalAmount = widget.expense.originalAmount != null &&
+          widget.expense.currency != _defaultCurrency;
+
+      if (_showOriginalAmount) {
+        final originalSymbol =
+            _currencyService.currencySymbols[widget.expense.currency] ??
+                widget.expense.currency;
+        _formattedOriginalAmount =
+            '$originalSymbol${widget.expense.originalAmount!.toStringAsFixed(2)}';
       }
 
       if (mounted) {
@@ -78,25 +76,36 @@ class _ExpenseListItemState extends State<ExpenseListItem> {
         });
       }
     } catch (e) {
-      // Fallback formatting
+      // Fallback to basic formatting
       if (mounted) {
         setState(() {
           _formattedAmount = '\$${widget.expense.amount.toStringAsFixed(2)}';
-          if (widget.expense.originalAmount != null) {
-            _formattedOriginalAmount = '${widget.expense.currency} ${widget.expense.originalAmount!.toStringAsFixed(2)}';
-          }
           _isLoading = false;
         });
       }
     }
   }
 
+  // Helper method to format date
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final expenseDate = DateTime(date.year, date.month, date.day);
+
+    if (expenseDate == today) {
+      return 'Today';
+    } else if (expenseDate == yesterday) {
+      return 'Yesterday';
+    } else {
+      return DateFormat('MMM d, yyyy').format(date);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Get the currency provider
-    final currencyProvider = Provider.of<CurrencyProvider>(context);
-    final isDifferentCurrency = widget.expense.currency != currencyProvider.currencyCode;
-    final String formattedDate = _formatDate(widget.expense.date);
+    final Color textColor =
+        widget.expense.amount > 100 ? Colors.red : Colors.green;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -112,15 +121,12 @@ class _ExpenseListItemState extends State<ExpenseListItem> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${widget.expense.category} • $formattedDate',
+                  '${widget.expense.category} • ${_formatDate(widget.expense.date)}',
                   overflow: TextOverflow.ellipsis,
                 ),
-                // Show original amount if in a different currency
-                if (isDifferentCurrency &&
-                    widget.expense.originalAmount != null &&
-                    _formattedOriginalAmount != null)
+                if (_showOriginalAmount && _formattedOriginalAmount != null)
                   Text(
-                    'Original: $_formattedOriginalAmount',
+                    'Original: $_formattedOriginalAmount (${widget.expense.currency})',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.grey[600],
@@ -141,19 +147,35 @@ class _ExpenseListItemState extends State<ExpenseListItem> {
                 ? const SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : Text(
-                    _formattedAmount,
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: widget.expense.amount > 100
-                          ? Colors.red
-                          : Colors.green,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : RichText(
+                    textAlign: TextAlign.right,
+                    text: TextSpan(
+                      style: DefaultTextStyle.of(context).style,
+                      children: [
+                        TextSpan(
+                          text: _formattedAmount,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: textColor,
+                          ),
+                        ),
+                        if (widget.expense.currency != _defaultCurrency)
+                          TextSpan(
+                            text: '\n$_defaultCurrency',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                      ],
                     ),
                   ),
             onTap: widget.onTap,
           ),
+          // Action buttons row
           Padding(
             padding: const EdgeInsets.only(right: 8, bottom: 8, left: 8),
             child: Row(
@@ -208,21 +230,5 @@ class _ExpenseListItemState extends State<ExpenseListItem> {
         ],
       ),
     );
-  }
-
-  // Helper method to format date
-    String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final expenseDate = DateTime(date.year, date.month, date.day);
-
-    if (expenseDate == today) {
-      return 'Today';
-    } else if (expenseDate == yesterday) {
-      return 'Yesterday';
-    } else {
-      return DateFormat('MMM d, yyyy').format(date);
-    }
   }
 }
