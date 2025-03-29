@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../models/recurring_budget.dart';
 import '../models/category.dart';
 import '../services/database_service.dart';
+import '../services/currency_service.dart';
+import '../providers/currency_provider.dart';
 import 'package:logger/logger.dart';
 
 /// Screen for managing recurring budgets
@@ -22,6 +25,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
   final _formKey = GlobalKey<FormState>();
   final _budgetLimitController = TextEditingController();
   final _logger = Logger();
+  final CurrencyService _currencyService = CurrencyService();
   DateTime _startDate = DateTime.now();
   String? _selectedFrequency;
   String? _selectedCategory;
@@ -31,6 +35,10 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
   bool _isLoading = true;
   bool _isAddingNew = false;
   bool _isEditing = false;
+
+  // Currency related fields
+  String _currencyCode = 'USD';
+  String _selectedCurrency = 'USD';
 
   @override
   void initState() {
@@ -43,9 +51,33 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
       _selectedCategory = widget.budgetToEdit!.category;
       _selectedFrequency = widget.budgetToEdit!.frequency;
       _startDate = widget.budgetToEdit!.startDate;
+      _selectedCurrency = widget.budgetToEdit!.currency;
     }
 
-    loadData();
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    try {
+      // Initialize currency service first
+      await _currencyService.initialize();
+      _currencyCode = await _currencyService.getCurrencyCode();
+
+      // Set the selected currency from the app's default if not editing
+      if (!_isEditing) {
+        _selectedCurrency = _currencyCode;
+      }
+
+      // Then load other data
+      await loadData();
+    } catch (e) {
+      _logger.e('Error initializing data: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   /// Load categories and recurring budgets from the database
@@ -100,6 +132,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
     _selectedCategory = null;
     _selectedFrequency = null;
     _startDate = DateTime.now();
+    _selectedCurrency = _currencyCode; // Reset to app default currency
   }
 
   /// Save or update a recurring budget
@@ -110,15 +143,29 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
       });
 
       try {
+        // Get the currency provider for conversions if needed
+        final currencyProvider =
+            Provider.of<CurrencyProvider>(context, listen: false);
+
+        // Parse amount from input
+        double budgetLimit = double.parse(_budgetLimitController.text);
+
+        // Convert amount to app currency if different from selected
+        if (_selectedCurrency != currencyProvider.currencyCode) {
+          budgetLimit = await currencyProvider.convertToAppCurrency(
+              budgetLimit, _selectedCurrency);
+        }
+
         if (_isEditing) {
           // Update existing recurring budget
           final updatedBudget = RecurringBudget(
             id: widget.budgetToEdit!.id,
             category: _selectedCategory!,
-            budgetLimit: double.parse(_budgetLimitController.text),
+            budgetLimit: budgetLimit,
             startDate: _startDate,
             nextDate: _calculateNextDate(_startDate, _selectedFrequency!),
             frequency: _selectedFrequency!,
+            currency: _selectedCurrency,
           );
 
           await DatabaseService().updateRecurringBudget(updatedBudget);
@@ -142,10 +189,11 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
           final newRecurringBudget = RecurringBudget(
             id: DateTime.now().toString(),
             category: _selectedCategory!,
-            budgetLimit: double.parse(_budgetLimitController.text),
+            budgetLimit: budgetLimit,
             startDate: _startDate,
             nextDate: _calculateNextDate(_startDate, _selectedFrequency!),
             frequency: _selectedFrequency!,
+            currency: _selectedCurrency,
           );
 
           await DatabaseService().insertRecurringBudget(newRecurringBudget);
@@ -170,6 +218,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
         setState(() {
           _isAddingNew = false;
           _isEditing = false;
+          _isLoading = false;
         });
       } catch (e) {
         _logger.e('Error saving recurring budget: $e');
@@ -187,16 +236,19 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
   }
 
   /// Calculate the next occurrence date based on frequency
-  DateTime _calculateNextDate(DateTime startDate, String frequency) {
+  DateTime _calculateNextDate(DateTime currentDate, String frequency) {
     switch (frequency) {
       case 'Monthly':
-        return DateTime(startDate.year, startDate.month + 1, startDate.day);
+        return DateTime(
+            currentDate.year, currentDate.month + 1, currentDate.day);
       case 'Quarterly':
-        return DateTime(startDate.year, startDate.month + 3, startDate.day);
+        return DateTime(
+            currentDate.year, currentDate.month + 3, currentDate.day);
       case 'Yearly':
-        return DateTime(startDate.year + 1, startDate.month, startDate.day);
+        return DateTime(
+            currentDate.year + 1, currentDate.month, currentDate.day);
       default:
-        return startDate;
+        return currentDate;
     }
   }
 
@@ -217,12 +269,15 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Get the current currency provider
+    final currencyProvider = Provider.of<CurrencyProvider>(context);
+
     // No more appbar since this will be used in tab view
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
         : Column(
             children: [
-              if (_isAddingNew) _buildAddForm(),
+              if (_isAddingNew) _buildAddForm(currencyProvider),
               if (!_isAddingNew ||
                   _isEditing) // Only show list when not adding new and not editing
                 Expanded(
@@ -260,103 +315,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
                           itemCount: _recurringBudgets.length,
                           itemBuilder: (context, index) {
                             final budget = _recurringBudgets[index];
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              child: Column(
-                                children: [
-                                  ListTile(
-                                    title: Text(
-                                      budget.category,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold),
-                                    ),
-                                    subtitle: Text(
-                                      '${budget.frequency} • Next: ${DateFormat('MMM d, yyyy').format(budget.nextDate)}',
-                                    ),
-                                    trailing: Text(
-                                      '\$${budget.budgetLimit.toStringAsFixed(2)}',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary,
-                                      ),
-                                    ),
-                                    leading: CircleAvatar(
-                                      backgroundColor: Theme.of(context)
-                                          .colorScheme
-                                          .primary
-                                          .withOpacity(0.1),
-                                      child: Icon(
-                                        Icons.sync,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary,
-                                      ),
-                                    ),
-                                  ),
-                                  // Action buttons
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                        right: 8, bottom: 8, left: 8),
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
-                                      children: [
-                                        // Edit button
-                                        TextButton.icon(
-                                          icon: Icon(
-                                            Icons.edit,
-                                            size: 20,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primary,
-                                          ),
-                                          label: Text(
-                                            'Edit',
-                                            style: TextStyle(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .primary,
-                                            ),
-                                          ),
-                                          style: TextButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 8,
-                                            ),
-                                          ),
-                                          onPressed: () => _editBudget(budget),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        // Delete button
-                                        TextButton.icon(
-                                          icon: const Icon(
-                                            Icons.delete,
-                                            size: 20,
-                                            color: Colors.red,
-                                          ),
-                                          label: const Text(
-                                            'Delete',
-                                            style: TextStyle(
-                                              color: Colors.red,
-                                            ),
-                                          ),
-                                          style: TextButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 8,
-                                            ),
-                                          ),
-                                          onPressed: () =>
-                                              _deleteBudget(budget),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
+                            return _buildBudgetCard(budget, currencyProvider);
                           },
                         ),
                 ),
@@ -364,8 +323,105 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
           );
   }
 
+  Widget _buildBudgetCard(
+      RecurringBudget budget, CurrencyProvider currencyProvider) {
+    return FutureBuilder<String>(
+        future: _currencyService.formatCurrency(
+            budget.budgetLimit, budget.currency),
+        builder: (context, snapshot) {
+          final formattedAmount = snapshot.hasData
+              ? snapshot.data!
+              : '${budget.currency} ${budget.budgetLimit.toStringAsFixed(2)}';
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Column(
+              children: [
+                ListTile(
+                  title: Text(
+                    budget.category,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    '${budget.frequency} • Next: ${DateFormat('MMM d, yyyy').format(budget.nextDate)}',
+                  ),
+                  trailing: Text(
+                    formattedAmount,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  leading: CircleAvatar(
+                    backgroundColor:
+                        Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                    child: Icon(
+                      Icons.sync,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+                // Action buttons
+                Padding(
+                  padding: const EdgeInsets.only(right: 8, bottom: 8, left: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      // Edit button
+                      TextButton.icon(
+                        icon: Icon(
+                          Icons.edit,
+                          size: 20,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        label: Text(
+                          'Edit',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                        onPressed: () => _editBudget(budget),
+                      ),
+                      const SizedBox(width: 8),
+                      // Delete button
+                      TextButton.icon(
+                        icon: const Icon(
+                          Icons.delete,
+                          size: 20,
+                          color: Colors.red,
+                        ),
+                        label: const Text(
+                          'Delete',
+                          style: TextStyle(
+                            color: Colors.red,
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                        onPressed: () => _deleteBudget(budget),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        });
+  }
+
   /// Form for adding or editing a recurring budget
-  Widget _buildAddForm() {
+  Widget _buildAddForm(CurrencyProvider currencyProvider) {
     return Container(
       color: Theme.of(context).colorScheme.surface,
       padding: const EdgeInsets.all(16),
@@ -406,25 +462,85 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
               },
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _budgetLimitController,
-              decoration: const InputDecoration(
-                labelText: 'Budget Limit',
-                prefixIcon: Icon(Icons.attach_money),
-                border: OutlineInputBorder(),
-              ),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter a budget limit';
-                }
-                if (double.tryParse(value) == null) {
-                  return 'Please enter a valid number';
-                }
-                return null;
-              },
+
+            // Budget limit field with currency selection
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Budget limit field
+                Expanded(
+                  flex: 3,
+                  child: TextFormField(
+                    controller: _budgetLimitController,
+                    decoration: InputDecoration(
+                      labelText: 'Budget Limit',
+                      prefixIcon: Text(
+                        '  ${_currencyService.currencySymbols[_selectedCurrency] ?? _selectedCurrency} ',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      prefixIconConstraints:
+                          const BoxConstraints(minWidth: 0, minHeight: 0),
+                      border: const OutlineInputBorder(),
+                    ),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter a budget limit';
+                      }
+                      if (double.tryParse(value) == null) {
+                        return 'Please enter a valid number';
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+
+                // Currency dropdown
+                Expanded(
+                  flex: 2,
+                  child: DropdownButtonFormField<String>(
+                    value: _selectedCurrency,
+                    decoration: const InputDecoration(
+                      labelText: 'Currency',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _currencyService.supportedCurrencies
+                        .map((currency) => DropdownMenuItem(
+                              value: currency,
+                              child: Text(currency),
+                            ))
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          _selectedCurrency = value;
+                        });
+                      }
+                    },
+                  ),
+                ),
+              ],
             ),
+
+            // Show conversion info if different currency
+            if (_selectedCurrency != currencyProvider.currencyCode)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, left: 8),
+                child: Text(
+                  'Will be converted to ${currencyProvider.currencyCode} on save',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ),
+
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: _selectedFrequency,
@@ -522,6 +638,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
         _selectedCategory = budget.category;
         _selectedFrequency = budget.frequency;
         _startDate = budget.startDate;
+        _selectedCurrency = budget.currency;
         _isEditing = true;
         _isAddingNew = true;
       });
@@ -539,10 +656,6 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
           .then((_) => loadData());
     }
   }
-
-  // Removed _showBudgetDetails method since it's now handled inline
-
-  // Removed unused _buildDetailRow method
 
   /// Delete a recurring budget
   Future<void> _deleteBudget(RecurringBudget budget) async {
