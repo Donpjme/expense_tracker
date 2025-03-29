@@ -334,19 +334,45 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                       ),
                       const SizedBox(height: 32),
 
-                      // Save button
-                      ElevatedButton(
-                        onPressed: _saveExpense,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                      // Row with save and cancel buttons
+                      Row(
+                        children: [
+                          // Save button
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: _saveExpense,
+                              style: ElevatedButton.styleFrom(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child: const Text(
+                                'Save Expense',
+                                style: TextStyle(fontSize: 16),
+                              ),
+                            ),
                           ),
-                        ),
-                        child: const Text(
-                          'Save Expense',
-                          style: TextStyle(fontSize: 16),
-                        ),
+
+                          const SizedBox(width: 12),
+
+                          // Cancel button
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(context)
+                                  .pop(false); // Return false (no success)
+                            },
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 12, horizontal: 24),
+                            ),
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(fontSize: 16),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

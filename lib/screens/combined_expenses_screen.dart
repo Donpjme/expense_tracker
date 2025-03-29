@@ -55,7 +55,7 @@ class _CombinedExpensesScreenState extends State<CombinedExpensesScreen>
         controller: _tabController,
         children: [
           // Regular expenses tab
-          const ExpensesListScreen(),
+          const ExpenseListScreen(),
 
           // Recurring expenses tab - pass the key to access state
           RecurringExpenseScreen(key: _recurringExpenseKey),

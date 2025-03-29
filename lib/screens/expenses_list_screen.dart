@@ -6,14 +6,14 @@ import 'package:expense_tracker/screens/expense_edit_screen.dart';
 import 'package:intl/intl.dart';
 import 'package:logger/logger.dart';
 
-class ExpensesListScreen extends StatefulWidget {
-  const ExpensesListScreen({super.key});
+class ExpenseListScreen extends StatefulWidget {
+  const ExpenseListScreen({super.key});
 
   @override
-  _ExpensesListScreenState createState() => _ExpensesListScreenState();
+  _ExpenseListScreenState createState() => _ExpenseListScreenState();
 }
 
-class _ExpensesListScreenState extends State<ExpensesListScreen>
+class _ExpenseListScreenState extends State<ExpenseListScreen>
     with AutomaticKeepAliveClientMixin {
   List<Expense> _expenses = [];
   bool _isLoading = true;
@@ -91,7 +91,6 @@ class _ExpensesListScreenState extends State<ExpensesListScreen>
     }
   }
 
-  // Rest of your methods...
   // Helper method to format date
   String _formatDate(DateTime date) {
     final now = DateTime.now();

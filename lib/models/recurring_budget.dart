@@ -6,6 +6,7 @@ class RecurringBudget {
   final DateTime startDate;
   final DateTime nextDate;
   final String frequency; // 'Monthly', 'Quarterly', 'Yearly'
+  final String currency; // New field
 
   RecurringBudget({
     required this.id,
@@ -14,6 +15,7 @@ class RecurringBudget {
     required this.startDate,
     required this.nextDate,
     required this.frequency,
+    this.currency = 'USD', // Default currency
   });
 
   /// Convert a RecurringBudget object to a Map for database storage
@@ -25,6 +27,7 @@ class RecurringBudget {
       'startDate': startDate.toIso8601String(),
       'nextDate': nextDate.toIso8601String(),
       'frequency': frequency,
+      'currency': currency,
     };
   }
 
@@ -37,6 +40,7 @@ class RecurringBudget {
       startDate: DateTime.parse(map['startDate']),
       nextDate: DateTime.parse(map['nextDate']),
       frequency: map['frequency'],
+      currency: map['currency'] ?? 'USD', // Default to USD if not specified
     );
   }
 }

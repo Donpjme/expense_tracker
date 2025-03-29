@@ -25,7 +25,8 @@ class DatabaseService {
   final Logger _logger = Logger();
 
   // Increment the database version when schema changes
-  static const int _databaseVersion = 5; // Increased for adding isActive column
+  static const int _databaseVersion =
+      6; // Increased for adding currency columns
 
   DatabaseService._internal();
 
@@ -87,25 +88,28 @@ class DatabaseService {
 
   Future<void> _createDb(Database db, int version) async {
     try {
-      // Create expenses table
+      // Create expenses table with currency fields
       await db.execute('''
         CREATE TABLE expenses(
           id TEXT PRIMARY KEY,
           title TEXT,
           amount REAL,
           date TEXT,
-          category TEXT
+          category TEXT,
+          currency TEXT DEFAULT "USD",
+          originalAmount REAL
         )
       ''');
 
-      // Create budgets table
+      // Create budgets table with currency field
       await db.execute('''
         CREATE TABLE budgets(
           id TEXT PRIMARY KEY,
           category TEXT,
           budgetLimit REAL,
           startDate TEXT,
-          endDate TEXT
+          endDate TEXT,
+          currency TEXT DEFAULT "USD"
         )
       ''');
 
@@ -117,7 +121,7 @@ class DatabaseService {
         )
       ''');
 
-      // Create recurring_expenses table with isActive column
+      // Create recurring_expenses table with currency field
       await db.execute('''
         CREATE TABLE recurring_expenses(
           id TEXT PRIMARY KEY,
@@ -127,11 +131,12 @@ class DatabaseService {
           startDate TEXT,
           nextDate TEXT,
           frequency TEXT,
-          isActive INTEGER DEFAULT 1
+          isActive INTEGER DEFAULT 1,
+          currency TEXT DEFAULT "USD"
         )
       ''');
 
-      // Create recurring_budgets table
+      // Create recurring_budgets table with currency field
       await db.execute('''
         CREATE TABLE recurring_budgets(
           id TEXT PRIMARY KEY,
@@ -139,7 +144,8 @@ class DatabaseService {
           budgetLimit REAL,
           startDate TEXT,
           nextDate TEXT,
-          frequency TEXT
+          frequency TEXT,
+          currency TEXT DEFAULT "USD"
         )
       ''');
 
@@ -250,6 +256,68 @@ class DatabaseService {
         }
       }
 
+      if (oldVersion < 6) {
+        _logger.i('Adding currency support to database tables');
+
+        // Check and add currency column to expenses table
+        final expenseColumns = await db.rawQuery("PRAGMA table_info(expenses)");
+        final hasExpensesCurrencyColumn =
+            expenseColumns.any((col) => col['name'] == 'currency');
+
+        if (!hasExpensesCurrencyColumn) {
+          await db.execute(
+              'ALTER TABLE expenses ADD COLUMN currency TEXT DEFAULT "USD"');
+          await db
+              .execute('ALTER TABLE expenses ADD COLUMN originalAmount REAL');
+          _logger.i('Added currency columns to expenses table');
+        }
+
+        // Check and add currency column to budgets table
+        final budgetColumns = await db.rawQuery("PRAGMA table_info(budgets)");
+        final hasBudgetsCurrencyColumn =
+            budgetColumns.any((col) => col['name'] == 'currency');
+
+        if (!hasBudgetsCurrencyColumn) {
+          await db.execute(
+              'ALTER TABLE budgets ADD COLUMN currency TEXT DEFAULT "USD"');
+          _logger.i('Added currency column to budgets table');
+        }
+
+        // Check and add currency column to recurring_expenses table
+        final tables = await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='recurring_expenses'");
+
+        if (tables.isNotEmpty) {
+          final recExpColumns =
+              await db.rawQuery("PRAGMA table_info(recurring_expenses)");
+          final hasRecExpCurrencyColumn =
+              recExpColumns.any((col) => col['name'] == 'currency');
+
+          if (!hasRecExpCurrencyColumn) {
+            await db.execute(
+                'ALTER TABLE recurring_expenses ADD COLUMN currency TEXT DEFAULT "USD"');
+            _logger.i('Added currency column to recurring_expenses table');
+          }
+        }
+
+        // Check and add currency column to recurring_budgets table
+        final recBudgetTables = await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='recurring_budgets'");
+
+        if (recBudgetTables.isNotEmpty) {
+          final recBudgetColumns =
+              await db.rawQuery("PRAGMA table_info(recurring_budgets)");
+          final hasRecBudgetCurrencyColumn =
+              recBudgetColumns.any((col) => col['name'] == 'currency');
+
+          if (!hasRecBudgetCurrencyColumn) {
+            await db.execute(
+                'ALTER TABLE recurring_budgets ADD COLUMN currency TEXT DEFAULT "USD"');
+            _logger.i('Added currency column to recurring_budgets table');
+          }
+        }
+      }
+
       _logger.i('Database upgrade completed successfully');
     } catch (e) {
       _logger.e('Failed to upgrade database: $e');
@@ -257,7 +325,6 @@ class DatabaseService {
     }
   }
 
-  // Rest of your methods...
   // Insert an expense into the database
   Future<void> insertExpense(Expense expense) async {
     final db = await database;
@@ -427,7 +494,6 @@ class DatabaseService {
     });
   }
 
-  // CRUD operations for recurring budgets and other utility methods...
   // Calculate total spending for a specific category
   Future<double> getTotalSpendingForCategory(String category) async {
     final db = await database;
@@ -505,6 +571,7 @@ class DatabaseService {
           amount: recurringExpense.amount,
           date: recurringExpense.nextDate,
           category: recurringExpense.category,
+          currency: recurringExpense.currency,
         );
         await insertExpense(newExpense);
 
@@ -544,6 +611,7 @@ class DatabaseService {
             startDate: recurringBudget.nextDate,
             endDate: _calculateNextDate(
                 recurringBudget.nextDate, recurringBudget.frequency),
+            currency: recurringBudget.currency,
           );
 
           await insertBudget(newBudget);
@@ -568,7 +636,6 @@ class DatabaseService {
     }
   }
 
-  // Helper methods...
   /// Calculate the next date based on frequency
   DateTime _calculateNextDate(DateTime currentDate, String frequency) {
     switch (frequency) {

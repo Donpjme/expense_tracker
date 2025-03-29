@@ -9,10 +9,13 @@ import 'package:logger/logger.dart';
 class BudgetSettingScreen extends StatefulWidget {
   final Budget? budgetToEdit;
   final Function? onBudgetAdded;
+  final bool
+      isFullScreen; // Added to track whether this is opened as a full screen
 
   const BudgetSettingScreen({
     this.budgetToEdit,
     this.onBudgetAdded,
+    this.isFullScreen = true, // Default to true for backward compatibility
     super.key,
   });
 
@@ -31,6 +34,7 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
   List<Budget> _budgets = [];
   bool _isLoading = false;
   bool _isEditing = false;
+  bool _isAddingNew = false; // Added to track whether we're adding a new budget
   final Logger _logger = Logger();
 
   @override
@@ -79,6 +83,24 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
     }
   }
 
+  /// Toggle add form visibility
+  void toggleAddForm() {
+    setState(() {
+      _isAddingNew = !_isAddingNew;
+      if (!_isAddingNew) {
+        _resetForm();
+      }
+    });
+  }
+
+  /// Reset form fields
+  void _resetForm() {
+    _budgetLimitController.clear();
+    _selectedCategory = null;
+    _startDate = DateTime.now();
+    _endDate = DateTime.now().add(const Duration(days: 30));
+  }
+
   /// Save or update a budget
   Future<void> _saveBudget() async {
     if (_formKey.currentState!.validate()) {
@@ -102,22 +124,20 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
           if (!mounted) return;
 
           // Show success message
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Budget updated successfully'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Budget updated successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
 
           // Use Future.delayed for consistent behavior
           Future.delayed(const Duration(milliseconds: 100), () {
             if (!mounted) return;
 
-            // Safely navigate back with Navigator.canPop check
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop(true);
+            // Safely navigate back - fixed to use Navigator.pop with mounted check
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context, true);
             } else {
               // If we can't pop (unusual case), go to home
               Navigator.pushReplacementNamed(context, '/home');
@@ -138,21 +158,24 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
           if (!mounted) return;
 
           // Show success message
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Budget saved successfully'),
-                backgroundColor: Colors.green,
-                duration: Duration(seconds: 1),
-              ),
-            );
-          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Budget saved successfully'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 1),
+            ),
+          );
 
           // Reset form data
           setState(() {
             _isLoading = false;
             _budgetLimitController.clear();
             _selectedCategory = null;
+
+            // If we're in full screen mode, hide the form after saving
+            if (widget.isFullScreen) {
+              _isAddingNew = false;
+            }
           });
 
           // Reload data
@@ -164,6 +187,13 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
               widget.onBudgetAdded!();
             } catch (e) {
               _logger.e('Error in budget callback: $e');
+            }
+          }
+
+          // If we're in full screen mode, pop back to previous screen
+          if (widget.isFullScreen && mounted) {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context, true);
             }
           }
         }
@@ -184,8 +214,11 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
 
   /// Show date picker for start date
   Future<void> _selectStartDate(BuildContext context) async {
+    // Store context in local variable
+    final currentContext = context;
+
     final pickedDate = await showDatePicker(
-      context: context,
+      context: currentContext,
       initialDate: _startDate,
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
@@ -205,8 +238,11 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
 
   /// Show date picker for end date
   Future<void> _selectEndDate(BuildContext context) async {
+    // Store context in local variable
+    final currentContext = context;
+
     final pickedDate = await showDatePicker(
-      context: context,
+      context: currentContext,
       initialDate: _endDate.isBefore(_startDate)
           ? _startDate.add(const Duration(days: 1))
           : _endDate,
@@ -225,7 +261,50 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Modified to work well in a tab view (no app bar)
+    // Build a Scaffold if this is a full screen, otherwise just return the body content
+    if (widget.isFullScreen) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(_isEditing ? 'Edit Budget' : 'Manage Budgets'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+          ),
+          actions: [
+            if (!_isAddingNew && !_isEditing)
+              IconButton(
+                icon: const Icon(Icons.add),
+                onPressed: () {
+                  setState(() {
+                    _isAddingNew = true;
+                  });
+                },
+                tooltip: 'Add Budget',
+              ),
+          ],
+        ),
+        body: _buildBody(),
+        floatingActionButton: !_isAddingNew && !_isEditing
+            ? FloatingActionButton(
+                onPressed: () {
+                  setState(() {
+                    _isAddingNew = true;
+                  });
+                },
+                tooltip: 'Add Budget',
+                child: const Icon(Icons.add),
+              )
+            : null,
+      );
+    } else {
+      // For tab view or other embedded uses
+      return _buildBody();
+    }
+  }
+
+  Widget _buildBody() {
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
         : SingleChildScrollView(
@@ -234,140 +313,219 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Budget form
-                  Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          _isEditing ? 'Edit Budget' : 'Create Budget',
-                          style: Theme.of(context).textTheme.headlineSmall,
+                  // Show form if adding new or editing, otherwise show budget list
+                  if (_isAddingNew || _isEditing)
+                    _buildBudgetForm()
+                  else ...[
+                    // Add budget button for non-full screen mode
+                    if (!widget.isFullScreen)
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _isAddingNew = true;
+                          });
+                        },
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add New Budget'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
-                        const SizedBox(height: 16),
+                      ),
 
-                        // Category selection
-                        DropdownButtonFormField<String>(
-                          value: _selectedCategory,
-                          decoration: const InputDecoration(
-                            labelText: 'Category',
-                            prefixIcon: Icon(Icons.category),
-                            border: OutlineInputBorder(),
-                          ),
-                          hint: const Text('Select Category'),
-                          items: _categories.map((category) {
-                            return DropdownMenuItem(
-                              value: category.name,
-                              child: Text(category.name),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedCategory = value;
-                            });
-                          },
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please select a category';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Budget limit input
-                        TextFormField(
-                          controller: _budgetLimitController,
-                          decoration: const InputDecoration(
-                            labelText: 'Budget Limit',
-                            prefixIcon: Icon(Icons.attach_money),
-                            border: OutlineInputBorder(),
-                          ),
-                          keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter a budget limit';
-                            }
-                            if (double.tryParse(value) == null) {
-                              return 'Please enter a valid number';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Date selection
-                        Row(
+                    // Show existing budgets
+                    if (_budgets.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        'Current Budgets',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 8),
+                      ..._budgets.map((budget) => _buildBudgetCard(budget)),
+                    ] else ...[
+                      const SizedBox(height: 24),
+                      Center(
+                        child: Column(
                           children: [
-                            Expanded(
-                              child: InkWell(
-                                onTap: () => _selectStartDate(context),
-                                child: InputDecorator(
-                                  decoration: const InputDecoration(
-                                    labelText: 'Start Date',
-                                    prefixIcon: Icon(Icons.calendar_today),
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  child: Text(
-                                    DateFormat('MMM dd, yyyy')
-                                        .format(_startDate),
-                                  ),
-                                ),
-                              ),
+                            Icon(
+                              Icons.account_balance_wallet_outlined,
+                              size: 64,
+                              color: Colors.grey,
                             ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: InkWell(
-                                onTap: () => _selectEndDate(context),
-                                child: InputDecorator(
-                                  decoration: const InputDecoration(
-                                    labelText: 'End Date',
-                                    prefixIcon: Icon(Icons.calendar_today),
-                                    border: OutlineInputBorder(),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No budgets set',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(
+                                    color: Colors.grey,
                                   ),
-                                  child: Text(
-                                    DateFormat('MMM dd, yyyy').format(_endDate),
-                                  ),
-                                ),
-                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton(
+                              onPressed: () {
+                                setState(() {
+                                  _isAddingNew = true;
+                                });
+                              },
+                              child: const Text('Set Your First Budget'),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 24),
-
-                        // Save button
-                        ElevatedButton(
-                          onPressed: _saveBudget,
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          child: Text(
-                            _isEditing ? 'Update Budget' : 'Save Budget',
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Show existing budgets
-                  if (_budgets.isNotEmpty) ...[
-                    const SizedBox(height: 32),
-                    Text(
-                      'Current Budgets',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    ..._budgets.map((budget) => _buildBudgetCard(budget)),
+                      ),
+                    ],
                   ],
                 ],
               ),
             ),
           );
+  }
+
+  /// Build the budget form
+  Widget _buildBudgetForm() {
+    return Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            _isEditing ? 'Edit Budget' : 'Create Budget',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 16),
+
+          // Category selection
+          DropdownButtonFormField<String>(
+            value: _selectedCategory,
+            decoration: const InputDecoration(
+              labelText: 'Category',
+              prefixIcon: Icon(Icons.category),
+              border: OutlineInputBorder(),
+            ),
+            hint: const Text('Select Category'),
+            items: _categories.map((category) {
+              return DropdownMenuItem(
+                value: category.name,
+                child: Text(category.name),
+              );
+            }).toList(),
+            onChanged: (value) {
+              setState(() {
+                _selectedCategory = value;
+              });
+            },
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please select a category';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 16),
+
+          // Budget limit input
+          TextFormField(
+            controller: _budgetLimitController,
+            decoration: const InputDecoration(
+              labelText: 'Budget Limit',
+              prefixIcon: Icon(Icons.attach_money),
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please enter a budget limit';
+              }
+              if (double.tryParse(value) == null) {
+                return 'Please enter a valid number';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 16),
+
+          // Date selection
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: () => _selectStartDate(context),
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Start Date',
+                      prefixIcon: Icon(Icons.calendar_today),
+                      border: OutlineInputBorder(),
+                    ),
+                    child: Text(
+                      DateFormat('MMM dd, yyyy').format(_startDate),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: InkWell(
+                  onTap: () => _selectEndDate(context),
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'End Date',
+                      prefixIcon: Icon(Icons.calendar_today),
+                      border: OutlineInputBorder(),
+                    ),
+                    child: Text(
+                      DateFormat('MMM dd, yyyy').format(_endDate),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Button row with save and cancel
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _saveBudget,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: Text(
+                    _isEditing ? 'Update Budget' : 'Save Budget',
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              TextButton(
+                onPressed: () {
+                  if (_isEditing &&
+                      widget.budgetToEdit != null &&
+                      widget.isFullScreen) {
+                    Navigator.of(context).pop();
+                  } else {
+                    setState(() {
+                      _isAddingNew = false;
+                      _isEditing = false;
+                      _resetForm();
+                    });
+                  }
+                },
+                style: TextButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                ),
+                child: const Text('Cancel', style: TextStyle(fontSize: 16)),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   /// Helper function to build a budget card
@@ -529,22 +687,38 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
 
   /// Navigate to edit screen for a budget
   void _editBudget(Budget budget) {
-    Navigator.of(context)
-        .push(
-          MaterialPageRoute(
-            builder: (context) => BudgetSettingScreen(
-              budgetToEdit: budget,
-              onBudgetAdded: widget.onBudgetAdded,
+    if (widget.isFullScreen) {
+      // If in full screen mode, edit inline
+      setState(() {
+        _isEditing = true;
+        _isAddingNew = true;
+        _budgetLimitController.text = budget.budgetLimit.toString();
+        _selectedCategory = budget.category;
+        _startDate = budget.startDate;
+        _endDate = budget.endDate;
+      });
+    } else {
+      // If in tab view, navigate to edit screen
+      Navigator.of(context)
+          .push(
+            MaterialPageRoute(
+              builder: (context) => BudgetSettingScreen(
+                budgetToEdit: budget,
+                onBudgetAdded: widget.onBudgetAdded,
+              ),
             ),
-          ),
-        )
-        .then((_) => loadData()); // Refresh on return
+          )
+          .then((_) => loadData()); // Refresh on return
+    }
   }
 
   /// Delete a budget
   Future<void> _deleteBudget(Budget budget) async {
+    // Store context in local variable
+    final currentContext = context;
+
     final confirmed = await showDialog<bool>(
-      context: context,
+      context: currentContext,
       builder: (context) => AlertDialog(
         title: const Text('Delete Budget'),
         content: Text(
@@ -564,6 +738,8 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
         ],
       ),
     );
+
+    if (!mounted) return;
 
     if (confirmed == true) {
       try {

@@ -6,8 +6,8 @@ class RecurringExpense {
   final DateTime startDate;
   final DateTime nextDate;
   final String frequency; // e.g., 'daily', 'weekly', 'monthly'
-  final bool
-      isActive; // Added field to track whether the recurring expense is active
+  final bool isActive;
+  final String currency; // New field
 
   RecurringExpense({
     required this.id,
@@ -18,6 +18,7 @@ class RecurringExpense {
     required this.nextDate,
     required this.frequency,
     this.isActive = true, // Default to active
+    this.currency = 'USD', // Default currency
   });
 
   // Convert a RecurringExpense object to a Map for database storage
@@ -31,6 +32,7 @@ class RecurringExpense {
       'nextDate': nextDate.toIso8601String(),
       'frequency': frequency,
       'isActive': isActive ? 1 : 0, // Store as 1 (true) or 0 (false) for SQLite
+      'currency': currency,
     };
   }
 
@@ -47,6 +49,7 @@ class RecurringExpense {
       isActive: map['isActive'] == null
           ? true
           : map['isActive'] == 1, // Handle null case
+      currency: map['currency'] ?? 'USD', // Default to USD if not specified
     );
   }
 }

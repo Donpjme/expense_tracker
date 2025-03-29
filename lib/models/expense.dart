@@ -4,6 +4,8 @@ class Expense {
   final double amount;
   final DateTime date;
   final String category;
+  final String currency; // New field
+  final double? originalAmount; // Optional: store original amount if converted
 
   Expense({
     required this.id,
@@ -11,6 +13,8 @@ class Expense {
     required this.amount,
     required this.date,
     required this.category,
+    this.currency = 'USD', // Default currency
+    this.originalAmount,
   });
 
   // Convert an Expense object into a Map
@@ -21,6 +25,8 @@ class Expense {
       'amount': amount,
       'date': date.toIso8601String(), // Convert DateTime to String
       'category': category,
+      'currency': currency,
+      'originalAmount': originalAmount,
     };
   }
 
@@ -32,6 +38,8 @@ class Expense {
       amount: map['amount'],
       date: DateTime.parse(map['date']), // Convert String to DateTime
       category: map['category'],
+      currency: map['currency'] ?? 'USD', // Default to USD if not specified
+      originalAmount: map['originalAmount'],
     );
   }
 }

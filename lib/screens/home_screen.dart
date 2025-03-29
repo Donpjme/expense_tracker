@@ -5,6 +5,7 @@ import 'package:expense_tracker/screens/dashboard_screen.dart';
 import 'package:expense_tracker/screens/combined_expenses_screen.dart';
 import 'package:expense_tracker/screens/combined_budgets_screen.dart';
 import 'package:expense_tracker/screens/reports_screen.dart';
+import 'package:expense_tracker/screens/currency_settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -61,6 +62,19 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Expense Tracker'),
         actions: [
+          // Currency settings button
+          IconButton(
+            icon: const Icon(Icons.currency_exchange),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CurrencySettingsScreen(),
+                ),
+              ).then((_) => _refreshData());
+            },
+            tooltip: 'Currency Settings',
+          ),
           // Security settings button
           IconButton(
             icon: const Icon(Icons.security),

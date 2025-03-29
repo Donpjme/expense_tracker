@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import '../models/expense.dart';
 import '../models/category.dart';
 import '../services/database_service.dart';
+import '../services/currency_service.dart';
+import '../widgets/currency_selector.dart';
 
 /// Screen for editing an existing expense
 class ExpenseEditScreen extends StatefulWidget {
@@ -28,32 +30,51 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
   bool _isLoading = false;
   DateTime _selectedDate = DateTime.now();
 
+  // Currency fields
+  late CurrencyService _currencyService;
+  late String _selectedCurrency;
+  bool _isConvertingCurrency = false;
+  double? _convertedAmount;
+  String _originalCurrency = 'USD';
+
   @override
   void initState() {
     super.initState();
+    _currencyService = CurrencyService();
 
     // Initialize form with expense data
     _titleController.text = widget.expense.title;
-    _amountController.text = widget.expense.amount.toString();
+    _amountController.text =
+        (widget.expense.originalAmount ?? widget.expense.amount).toString();
     _selectedCategory = widget.expense.category;
     _selectedDate = widget.expense.date;
+    _originalCurrency = widget.expense.currency;
+    _selectedCurrency = widget.expense.currency;
 
-    _loadCategories();
+    _loadCurrencyAndCategories();
   }
 
-  /// Load categories from the database
-  Future<void> _loadCategories() async {
+  /// Load categories from the database and initialize currency service
+  Future<void> _loadCurrencyAndCategories() async {
     setState(() {
       _isLoading = true;
     });
 
     try {
+      // Initialize currency service
+      await _currencyService.initialize();
+
       final categories = await DatabaseService().getCategories();
       if (!mounted) return;
       setState(() {
         _categories = categories;
         _isLoading = false;
       });
+
+      // Update amount preview if currency is different from default
+      if (_selectedCurrency != _currencyService.defaultCurrency) {
+        _updateAmountPreview();
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -73,12 +94,30 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
       });
 
       try {
+        // Parse amount from input
+        double originalAmount = double.parse(_amountController.text);
+        double amountInDefaultCurrency = originalAmount;
+
+        // Convert to default currency if different from selected
+        if (_selectedCurrency != _currencyService.defaultCurrency) {
+          amountInDefaultCurrency = await _currencyService.convertCurrency(
+              originalAmount,
+              _selectedCurrency,
+              _currencyService.defaultCurrency);
+        }
+
         final updatedExpense = Expense(
           id: widget.expense.id,
           title: _titleController.text,
-          amount: double.parse(_amountController.text),
+          amount: _selectedCurrency == _currencyService.defaultCurrency
+              ? originalAmount
+              : amountInDefaultCurrency,
           date: _selectedDate,
           category: _selectedCategory ?? 'Uncategorized',
+          currency: _selectedCurrency,
+          originalAmount: _selectedCurrency != _currencyService.defaultCurrency
+              ? originalAmount
+              : null,
         );
 
         await DatabaseService().updateExpense(updatedExpense);
@@ -115,7 +154,11 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
 
         // Notify parent if callback exists
         if (widget.onExpenseUpdated != null) {
-          widget.onExpenseUpdated!();
+          try {
+            widget.onExpenseUpdated!();
+          } catch (e) {
+            // Handle callback error
+          }
         }
 
         // Return to previous screen
@@ -172,6 +215,47 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
     }
   }
 
+  /// Update amount preview when currency changes
+  Future<void> _updateAmountPreview() async {
+    final amountText = _amountController.text;
+    if (amountText.isEmpty) {
+      setState(() {
+        _convertedAmount = null;
+      });
+      return;
+    }
+
+    try {
+      final amount = double.parse(amountText);
+
+      // Only show preview if not in default currency
+      if (_selectedCurrency != _currencyService.defaultCurrency) {
+        setState(() {
+          _isConvertingCurrency = true;
+        });
+
+        final converted = await _currencyService.convertCurrency(
+            amount, _selectedCurrency, _currencyService.defaultCurrency);
+
+        if (!mounted) return;
+
+        setState(() {
+          _convertedAmount = converted;
+          _isConvertingCurrency = false;
+        });
+      } else {
+        setState(() {
+          _convertedAmount = null;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _convertedAmount = null;
+        _isConvertingCurrency = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -206,27 +290,102 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Amount field
-                      TextFormField(
-                        controller: _amountController,
-                        decoration: const InputDecoration(
-                          labelText: 'Amount',
-                          prefixIcon: Icon(Icons.attach_money),
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter an amount';
-                          }
-                          if (double.tryParse(value) == null) {
-                            return 'Please enter a valid number';
-                          }
-                          return null;
-                        },
-                        textInputAction: TextInputAction.next,
+                      // Amount field with currency selector
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Amount field
+                          Expanded(
+                            flex: 3,
+                            child: TextFormField(
+                              controller: _amountController,
+                              decoration: const InputDecoration(
+                                labelText: 'Amount',
+                                prefixIcon: Icon(Icons.attach_money),
+                                border: OutlineInputBorder(),
+                              ),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'Please enter an amount';
+                                }
+                                if (double.tryParse(value) == null) {
+                                  return 'Please enter a valid number';
+                                }
+                                return null;
+                              },
+                              textInputAction: TextInputAction.next,
+                              onChanged: (_) => _updateAmountPreview(),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+
+                          // Currency selector
+                          Expanded(
+                            flex: 2,
+                            child: Container(
+                              padding: const EdgeInsets.only(top: 4),
+                              height: 62, // Match height with TextFormField
+                              child: InputDecorator(
+                                decoration: const InputDecoration(
+                                  border: OutlineInputBorder(),
+                                  contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 8),
+                                ),
+                                child: CurrencySelector(
+                                  selectedCurrency: _selectedCurrency,
+                                  onCurrencyChanged: (currency) {
+                                    setState(() {
+                                      _selectedCurrency = currency;
+                                    });
+                                    _updateAmountPreview();
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
+
+                      // Currency conversion preview
+                      if (_isConvertingCurrency || _convertedAmount != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0, left: 8.0),
+                          child: _isConvertingCurrency
+                              ? const Text(
+                                  'Converting...',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontStyle: FontStyle.italic,
+                                    color: Colors.grey,
+                                  ),
+                                )
+                              : Text(
+                                  'Will be saved as: ${_currencyService.formatCurrency(_convertedAmount!, _currencyService.defaultCurrency)} (${_currencyService.defaultCurrency})',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontStyle: FontStyle.italic,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                        ),
+
+                      // Note about original currency if changed
+                      if (_originalCurrency != _selectedCurrency)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8.0, left: 8.0),
+                          child: Text(
+                            'Original currency: $_originalCurrency',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                              color: Colors.orange[700],
+                            ),
+                          ),
+                        ),
+
                       const SizedBox(height: 16),
 
                       // Category dropdown
