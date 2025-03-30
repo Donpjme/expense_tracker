@@ -171,19 +171,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen>
                         ),
                         const SizedBox(height: 16),
                         ElevatedButton(
-                          onPressed: () async {
-                            // Navigate to add expense screen and wait for result
-                            final result = await Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (ctx) => const AddExpenseScreen(),
-                              ),
-                            );
-
-                            // Refresh expenses list if expense was added
-                            if (result == true) {
-                              _loadExpenses();
-                            }
-                          },
+                          onPressed: _navigateToAddScreen,
                           child: const Text('Add Your First Expense'),
                         ),
                       ],
@@ -205,7 +193,7 @@ class _ExpenseListScreenState extends State<ExpenseListScreen>
       ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'expensesListFAB',
-        onPressed: () => _navigateToAddScreen(),
+        onPressed: _navigateToAddScreen,
         tooltip: 'Add Expense',
         child: const Icon(Icons.add),
       ),
@@ -214,20 +202,21 @@ class _ExpenseListScreenState extends State<ExpenseListScreen>
 
   // Navigate to add expense screen
   Future<void> _navigateToAddScreen() async {
-    final result = await Navigator.of(context).push(
+    final dynamic result = await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => const AddExpenseScreen(),
       ),
     );
+
+    // Refresh expenses list if expense was added
     if (result == true) {
-      // Load fresh data after adding a new expense
       _loadExpenses();
     }
   }
 
   // Navigate to edit screen
   Future<void> _navigateToEditScreen(Expense expense) async {
-    final result = await Navigator.of(context).push(
+    final dynamic result = await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ExpenseEditScreen(
           expense: expense,
@@ -236,8 +225,8 @@ class _ExpenseListScreenState extends State<ExpenseListScreen>
       ),
     );
 
+    // Refresh expenses list if expense was updated
     if (result == true) {
-      // Load fresh data after editing
       _loadExpenses();
     }
   }

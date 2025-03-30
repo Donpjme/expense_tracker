@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
 import '../models/recurring_expense.dart';
 import '../models/category.dart';
 import '../services/database_service.dart';
 import '../services/currency_service.dart';
-import '../providers/currency_provider.dart';
 import 'package:logger/logger.dart';
 
 /// Screen for managing recurring expenses
@@ -18,10 +16,10 @@ class RecurringExpenseScreen extends StatefulWidget {
   });
 
   @override
-  RecurringExpenseScreenState createState() => RecurringExpenseScreenState();
+  State<RecurringExpenseScreen> createState() => _RecurringExpenseScreenState();
 }
 
-class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
+class _RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _amountController = TextEditingController();
@@ -39,7 +37,7 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
 
   // Currency related fields
   String _currencyCode = 'USD';
-  String _selectedCurrency = 'USD';
+  String _currencySymbol = '\$';
 
   @override
   void initState() {
@@ -53,7 +51,6 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
       _selectedCategory = widget.expenseToEdit!.category;
       _selectedFrequency = widget.expenseToEdit!.frequency;
       _startDate = widget.expenseToEdit!.startDate;
-      _selectedCurrency = widget.expenseToEdit!.currency;
     }
 
     _initializeData();
@@ -64,11 +61,7 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
       // Initialize currency service first
       await _currencyService.initialize();
       _currencyCode = await _currencyService.getCurrencyCode();
-
-      // Set the selected currency from the app's default
-      if (!_isEditing) {
-        _selectedCurrency = _currencyCode;
-      }
+      _currencySymbol = await _currencyService.getCurrencySymbol();
 
       // Then load other data
       await loadData();
@@ -135,7 +128,6 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
     _selectedCategory = null;
     _selectedFrequency = 'Monthly';
     _startDate = DateTime.now();
-    _selectedCurrency = _currencyCode; // Reset to app default currency
   }
 
   /// Save or update a recurring expense
@@ -146,18 +138,8 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
       });
 
       try {
-        // Get the currency provider for conversions if needed
-        final currencyProvider =
-            Provider.of<CurrencyProvider>(context, listen: false);
-
         // Parse amount from input
         double amount = double.parse(_amountController.text);
-
-        // Convert amount to app currency if different from selected
-        if (_selectedCurrency != currencyProvider.currencyCode) {
-          amount = await currencyProvider.convertToAppCurrency(
-              amount, _selectedCurrency);
-        }
 
         if (_isEditing && widget.expenseToEdit != null) {
           // Update existing recurring expense
@@ -170,7 +152,7 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
             nextDate: _calculateNextDate(_startDate, _selectedFrequency!),
             frequency: _selectedFrequency!,
             isActive: true, // Set as active
-            currency: _selectedCurrency,
+            currency: _currencyCode, // Use app's default currency
           );
 
           await DatabaseService().updateRecurringExpense(updatedExpense);
@@ -200,7 +182,7 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
             nextDate: _calculateNextDate(_startDate, _selectedFrequency!),
             frequency: _selectedFrequency!,
             isActive: true, // Set as active by default
-            currency: _selectedCurrency,
+            currency: _currencyCode, // Use app's default currency
           );
 
           await DatabaseService().insertRecurringExpense(newRecurringExpense);
@@ -273,15 +255,12 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Get the current currency provider
-    final currencyProvider = Provider.of<CurrencyProvider>(context);
-
     // We'll remove the AppBar since this will be used in a tab view
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
         : Column(
             children: [
-              if (_isAddingNew) _buildAddForm(currencyProvider),
+              if (_isAddingNew) _buildAddForm(),
               if (!_isAddingNew ||
                   _isEditing) // Only show list when not adding new and not editing
                 Expanded(
@@ -319,7 +298,7 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
                           itemCount: _recurringExpenses.length,
                           itemBuilder: (context, index) {
                             final expense = _recurringExpenses[index];
-                            return _buildExpenseCard(expense, currencyProvider);
+                            return _buildExpenseCard(expense);
                           },
                         ),
                 ),
@@ -327,8 +306,7 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
           );
   }
 
-  Widget _buildExpenseCard(
-      RecurringExpense expense, CurrencyProvider currencyProvider) {
+  Widget _buildExpenseCard(RecurringExpense expense) {
     return FutureBuilder<String>(
         future:
             _currencyService.formatCurrency(expense.amount, expense.currency),
@@ -425,7 +403,7 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
   }
 
   /// Form for adding or editing a recurring expense
-  Widget _buildAddForm(CurrencyProvider currencyProvider) {
+  Widget _buildAddForm() {
     return Container(
       color: Theme.of(context).colorScheme.surface,
       padding: const EdgeInsets.all(16),
@@ -455,85 +433,37 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Amount field with currency selection
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Amount field
-                Expanded(
-                  flex: 3,
-                  child: TextFormField(
-                    controller: _amountController,
-                    decoration: InputDecoration(
-                      labelText: 'Amount',
-                      prefixIcon: Text(
-                        '  ${_currencyService.currencySymbols[_selectedCurrency] ?? _selectedCurrency} ',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      prefixIconConstraints:
-                          const BoxConstraints(minWidth: 0, minHeight: 0),
-                      border: const OutlineInputBorder(),
-                    ),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter an amount';
-                      }
-                      if (double.tryParse(value) == null) {
-                        return 'Please enter a valid number';
-                      }
-                      return null;
-                    },
+            // Amount field with currency symbol
+            TextFormField(
+              controller: _amountController,
+              decoration: InputDecoration(
+                labelText: 'Amount',
+                prefixIcon: Text(
+                  '  $_currencySymbol ',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(width: 8),
-
-                // Currency dropdown
-                Expanded(
-                  flex: 2,
-                  child: DropdownButtonFormField<String>(
-                    value: _selectedCurrency,
-                    decoration: const InputDecoration(
-                      labelText: 'Currency',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: _currencyService.supportedCurrencies
-                        .map((currency) => DropdownMenuItem(
-                              value: currency,
-                              child: Text(currency),
-                            ))
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() {
-                          _selectedCurrency = value;
-                        });
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-
-            // Show conversion info if different currency
-            if (_selectedCurrency != currencyProvider.currencyCode)
-              Padding(
-                padding: const EdgeInsets.only(top: 4, left: 8),
-                child: Text(
-                  'Will be converted to ${currencyProvider.currencyCode} on save',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontStyle: FontStyle.italic,
-                    color: Colors.grey[600],
-                  ),
-                ),
+                prefixIconConstraints:
+                    const BoxConstraints(minWidth: 0, minHeight: 0),
+                border: const OutlineInputBorder(),
+                helperText: 'Currency: $_currencyCode',
               ),
-
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Please enter an amount';
+                }
+                if (double.tryParse(value) == null) {
+                  return 'Please enter a valid number';
+                }
+                return null;
+              },
+            ),
             const SizedBox(height: 12),
+
             DropdownButtonFormField<String>(
               value: _selectedCategory,
               decoration: const InputDecoration(
@@ -658,7 +588,6 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
         _selectedCategory = expense.category;
         _selectedFrequency = expense.frequency;
         _startDate = expense.startDate;
-        _selectedCurrency = expense.currency;
         _isEditing = true;
         _isAddingNew = true;
       });

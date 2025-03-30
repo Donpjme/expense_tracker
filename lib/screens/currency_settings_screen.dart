@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import '../services/currency_service.dart';
+import '../services/currency_lock_service.dart';
 
 class CurrencySettingsScreen extends StatefulWidget {
   const CurrencySettingsScreen({super.key});
@@ -16,6 +17,7 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
   String _selectedCurrency = 'USD';
   String _currencySymbol = '\$';
   bool _isLoading = true;
+  bool _isCurrencyLocked = false;
 
   final List<Map<String, String>> _currencies = [
     {'code': 'USD', 'name': 'US Dollar', 'symbol': '\$'},
@@ -46,11 +48,16 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
       final currencyCode = await _currencyService.getCurrencyCode();
       final currencySymbol = await _currencyService.getCurrencySymbol();
 
+      // Check if currency is locked using the dedicated service
+      final lockService = CurrencyLockService();
+      final currencyLocked = await lockService.isCurrencyLocked();
+
       // Only update state if the widget is still mounted
       if (mounted) {
         setState(() {
           _selectedCurrency = currencyCode;
           _currencySymbol = currencySymbol;
+          _isCurrencyLocked = currencyLocked;
           _isLoading = false;
         });
       }
@@ -66,6 +73,17 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
   }
 
   Future<void> _updateCurrency(String currencyCode) async {
+    // If currency is locked, don't allow changes
+    if (_isCurrencyLocked) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Currency cannot be changed after initial setup'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     if (currencyCode == _selectedCurrency) return;
 
     setState(() {
@@ -121,6 +139,17 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
   }
 
   Future<void> _resetCurrency() async {
+    // If currency is locked, don't allow reset
+    if (_isCurrencyLocked) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Currency cannot be changed after initial setup'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
@@ -213,12 +242,47 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
                       ),
                     ),
                   ),
+
+                  // Show warning if currency is locked
+                  if (_isCurrencyLocked)
+                    Container(
+                      margin: const EdgeInsets.symmetric(vertical: 16),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.amber.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            color: Colors.amber.shade800,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Currency cannot be changed after initial setup to ensure consistency in your financial records.',
+                              style: TextStyle(
+                                color: Colors.amber.shade800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
                   const SizedBox(height: 24),
+
                   Text(
-                    'Select Currency',
+                    _isCurrencyLocked
+                        ? 'Available Currencies (View Only)'
+                        : 'Select Currency',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
+
                   const SizedBox(height: 16),
+
                   Expanded(
                     child: ListView.builder(
                       itemCount: _currencies.length,
@@ -259,23 +323,27 @@ class _CurrencySettingsScreenState extends State<CurrencySettingsScreen> {
                                         Theme.of(context).colorScheme.primary,
                                   )
                                 : null,
-                            onTap: () =>
-                                _updateCurrency(currency['code'] ?? 'USD'),
+                            onTap: _isCurrencyLocked
+                                ? null
+                                : () =>
+                                    _updateCurrency(currency['code'] ?? 'USD'),
                           ),
                         );
                       },
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16.0),
-                    child: Center(
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Reset to Default (USD)'),
-                        onPressed: _resetCurrency,
+
+                  if (!_isCurrencyLocked)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16.0),
+                      child: Center(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Reset to Default (USD)'),
+                          onPressed: _resetCurrency,
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),

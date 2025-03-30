@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/currency_service.dart';
+import '../services/currency_lock_service.dart';
 import '../providers/currency_provider.dart';
 
-class CurrencySelector extends StatelessWidget {
+class CurrencySelector extends StatefulWidget {
   final String selectedCurrency;
   final ValueChanged<String> onCurrencyChanged;
   final bool showSymbol;
@@ -16,14 +18,64 @@ class CurrencySelector extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final currencyService = CurrencyService();
+  State<CurrencySelector> createState() => _CurrencySelectorState();
+}
 
+class _CurrencySelectorState extends State<CurrencySelector> {
+  final currencyService = CurrencyService();
+  bool _isCurrencyLocked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkCurrencyLock();
+  }
+
+  Future<void> _checkCurrencyLock() async {
+    final lockService = CurrencyLockService();
+    final currencyLocked = await lockService.isCurrencyLocked();
+
+    if (mounted) {
+      setState(() {
+        _isCurrencyLocked = currencyLocked;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // If currency is locked, display a read-only text field
+    if (_isCurrencyLocked) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            widget.showSymbol
+                ? '${widget.selectedCurrency} (${currencyService.currencySymbols[widget.selectedCurrency] ?? widget.selectedCurrency})'
+                : widget.selectedCurrency,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Tooltip(
+            message: 'Currency cannot be changed after initial setup',
+            child: Icon(
+              Icons.lock,
+              size: 16,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.5),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Normal dropdown when currency is not locked
     return DropdownButton<String>(
-      value: selectedCurrency,
+      value: widget.selectedCurrency,
       onChanged: (String? newValue) {
         if (newValue != null) {
-          onCurrencyChanged(newValue);
+          widget.onCurrencyChanged(newValue);
         }
       },
       items: currencyService.supportedCurrencies
@@ -31,7 +83,7 @@ class CurrencySelector extends StatelessWidget {
         return DropdownMenuItem<String>(
           value: currency,
           child: Text(
-            showSymbol
+            widget.showSymbol
                 ? '$currency (${currencyService.currencySymbols[currency] ?? currency})'
                 : currency,
           ),
@@ -59,11 +111,26 @@ class _CurrencyPickerDialogState extends State<CurrencyPickerDialog> {
   late String _selectedCurrency;
   String _searchQuery = '';
   final CurrencyService _currencyService = CurrencyService();
+  bool _isCurrencyLocked = false;
 
   @override
   void initState() {
     super.initState();
     _selectedCurrency = widget.initialCurrency;
+    _checkCurrencyLock();
+  }
+
+  Future<void> _checkCurrencyLock() async {
+    if (widget.allowChangingGlobalCurrency) {
+      final prefs = await SharedPreferences.getInstance();
+      final currencyLocked = prefs.getBool('currency_locked') ?? false;
+
+      if (mounted) {
+        setState(() {
+          _isCurrencyLocked = currencyLocked;
+        });
+      }
+    }
   }
 
   @override
@@ -72,6 +139,23 @@ class _CurrencyPickerDialogState extends State<CurrencyPickerDialog> {
         .where((currency) =>
             currency.toLowerCase().contains(_searchQuery.toLowerCase()))
         .toList();
+
+    // Show a notice if the currency is locked globally
+    if (_isCurrencyLocked && widget.allowChangingGlobalCurrency) {
+      return AlertDialog(
+        title: const Text('Currency Locked'),
+        content: const Text(
+          'The app currency cannot be changed after initial setup to ensure '
+          'consistency in your financial records.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      );
+    }
 
     return AlertDialog(
       title: Text(widget.allowChangingGlobalCurrency
@@ -109,11 +193,14 @@ class _CurrencyPickerDialogState extends State<CurrencyPickerDialog> {
                   final currency = filteredCurrencies[index];
                   final symbol =
                       _currencyService.currencySymbols[currency] ?? currency;
+                  final isSelected = _selectedCurrency == currency;
 
                   return RadioListTile<String>(
                     title: Text('$currency ($symbol)'),
                     value: currency,
                     groupValue: _selectedCurrency,
+                    selected: isSelected,
+                    activeColor: Theme.of(context).colorScheme.primary,
                     onChanged: (String? value) {
                       if (value != null) {
                         setState(() {

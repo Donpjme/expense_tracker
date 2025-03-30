@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
 import '../models/budget.dart';
 import '../models/category.dart';
 import '../services/database_service.dart';
 import '../services/currency_service.dart';
-import '../providers/currency_provider.dart';
 import 'package:logger/logger.dart';
 
 /// Screen for setting and managing budgets
@@ -23,10 +21,10 @@ class BudgetSettingScreen extends StatefulWidget {
   });
 
   @override
-  BudgetSettingScreenState createState() => BudgetSettingScreenState();
+  State<BudgetSettingScreen> createState() => _BudgetSettingScreenState();
 }
 
-class BudgetSettingScreenState extends State<BudgetSettingScreen> {
+class _BudgetSettingScreenState extends State<BudgetSettingScreen> {
   final _formKey = GlobalKey<FormState>();
   final _categoryController = TextEditingController();
   final _budgetLimitController = TextEditingController();
@@ -43,7 +41,7 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
   // Currency related fields
   final CurrencyService _currencyService = CurrencyService();
   String _currencyCode = 'USD';
-  String _selectedCurrency = 'USD';
+  String _currencySymbol = '\$';
 
   @override
   void initState() {
@@ -56,7 +54,6 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
       _selectedCategory = widget.budgetToEdit!.category;
       _startDate = widget.budgetToEdit!.startDate;
       _endDate = widget.budgetToEdit!.endDate;
-      _selectedCurrency = widget.budgetToEdit!.currency;
     }
 
     _initializeData();
@@ -67,11 +64,7 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
       // Initialize currency service first
       await _currencyService.initialize();
       _currencyCode = await _currencyService.getCurrencyCode();
-
-      // Set selected currency from app default if not editing
-      if (!_isEditing) {
-        _selectedCurrency = _currencyCode;
-      }
+      _currencySymbol = await _currencyService.getCurrencySymbol();
 
       // Then load other data
       await loadData();
@@ -131,7 +124,6 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
     _selectedCategory = null;
     _startDate = DateTime.now();
     _endDate = DateTime.now().add(const Duration(days: 30));
-    _selectedCurrency = _currencyCode; // Reset to app default currency
   }
 
   /// Save or update a budget
@@ -142,18 +134,8 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
       });
 
       try {
-        // Get the currency provider for conversions if needed
-        final currencyProvider =
-            Provider.of<CurrencyProvider>(context, listen: false);
-
         // Parse amount from input
         double budgetLimit = double.parse(_budgetLimitController.text);
-
-        // Convert amount to app currency if different from selected
-        if (_selectedCurrency != currencyProvider.currencyCode) {
-          budgetLimit = await currencyProvider.convertToAppCurrency(
-              budgetLimit, _selectedCurrency);
-        }
 
         if (_isEditing) {
           // Update existing budget
@@ -163,7 +145,7 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
             budgetLimit: budgetLimit,
             startDate: _startDate,
             endDate: _endDate,
-            currency: _selectedCurrency,
+            currency: _currencyCode, // Use app's currency code
           );
 
           await DatabaseService().updateBudget(updatedBudget);
@@ -198,7 +180,7 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
             budgetLimit: budgetLimit,
             startDate: _startDate,
             endDate: _endDate,
-            currency: _selectedCurrency,
+            currency: _currencyCode, // Use app's currency code
           );
 
           await DatabaseService().insertBudget(newBudget);
@@ -309,9 +291,6 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Get the currency provider
-    final currencyProvider = Provider.of<CurrencyProvider>(context);
-
     // Build a Scaffold if this is a full screen, otherwise just return the body content
     if (widget.isFullScreen) {
       return Scaffold(
@@ -336,7 +315,7 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
               ),
           ],
         ),
-        body: _buildBody(currencyProvider),
+        body: _buildBody(),
         floatingActionButton: !_isAddingNew && !_isEditing
             ? FloatingActionButton(
                 onPressed: () {
@@ -351,11 +330,11 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
       );
     } else {
       // For tab view or other embedded uses
-      return _buildBody(currencyProvider);
+      return _buildBody();
     }
   }
 
-  Widget _buildBody(CurrencyProvider currencyProvider) {
+  Widget _buildBody() {
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
         : SingleChildScrollView(
@@ -366,7 +345,7 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
                 children: [
                   // Show form if adding new or editing, otherwise show budget list
                   if (_isAddingNew || _isEditing)
-                    _buildBudgetForm(currencyProvider)
+                    _buildBudgetForm()
                   else ...[
                     // Add budget button for non-full screen mode
                     if (!widget.isFullScreen)
@@ -391,8 +370,7 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       const SizedBox(height: 8),
-                      ..._budgets.map((budget) =>
-                          _buildBudgetCard(budget, currencyProvider)),
+                      ..._budgets.map((budget) => _buildBudgetCard(budget)),
                     ] else ...[
                       const SizedBox(height: 24),
                       Center(
@@ -433,8 +411,8 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
           );
   }
 
-  /// Build the budget form with currency support
-  Widget _buildBudgetForm(CurrencyProvider currencyProvider) {
+  /// Build the budget form with currency display
+  Widget _buildBudgetForm() {
     return Form(
       key: _formKey,
       child: Column(
@@ -475,84 +453,34 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Budget limit with currency selection
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Budget limit field
-              Expanded(
-                flex: 3,
-                child: TextFormField(
-                  controller: _budgetLimitController,
-                  decoration: InputDecoration(
-                    labelText: 'Budget Limit',
-                    prefixIcon: Text(
-                      '  ${_currencyService.currencySymbols[_selectedCurrency] ?? _selectedCurrency} ',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    prefixIconConstraints:
-                        const BoxConstraints(minWidth: 0, minHeight: 0),
-                    border: const OutlineInputBorder(),
-                  ),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter a budget limit';
-                    }
-                    if (double.tryParse(value) == null) {
-                      return 'Please enter a valid number';
-                    }
-                    return null;
-                  },
+          // Budget limit with currency display
+          TextFormField(
+            controller: _budgetLimitController,
+            decoration: InputDecoration(
+              labelText: 'Budget Limit',
+              prefixIcon: Text(
+                '  $_currencySymbol ',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(width: 8),
-
-              // Currency dropdown
-              Expanded(
-                flex: 2,
-                child: DropdownButtonFormField<String>(
-                  value: _selectedCurrency,
-                  decoration: const InputDecoration(
-                    labelText: 'Currency',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: _currencyService.supportedCurrencies
-                      .map((currency) => DropdownMenuItem(
-                            value: currency,
-                            child: Text(currency),
-                          ))
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() {
-                        _selectedCurrency = value;
-                      });
-                    }
-                  },
-                ),
-              ),
-            ],
-          ),
-
-          // Show conversion info if different currency
-          if (_selectedCurrency != currencyProvider.currencyCode)
-            Padding(
-              padding: const EdgeInsets.only(top: 4, left: 8),
-              child: Text(
-                'Will be converted to ${currencyProvider.currencyCode} on save',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontStyle: FontStyle.italic,
-                  color: Colors.grey[600],
-                ),
-              ),
+              prefixIconConstraints:
+                  const BoxConstraints(minWidth: 0, minHeight: 0),
+              border: const OutlineInputBorder(),
+              helperText: 'Currency: $_currencyCode',
             ),
-
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please enter a budget limit';
+              }
+              if (double.tryParse(value) == null) {
+                return 'Please enter a valid number';
+              }
+              return null;
+            },
+          ),
           const SizedBox(height: 16),
 
           // Date selection
@@ -640,7 +568,7 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
   }
 
   /// Helper function to build a budget card with currency formatting
-  Widget _buildBudgetCard(Budget budget, CurrencyProvider currencyProvider) {
+  Widget _buildBudgetCard(Budget budget) {
     return FutureBuilder<String>(
       future:
           _currencyService.formatCurrency(budget.budgetLimit, budget.currency),
@@ -676,7 +604,7 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
                     fontSize: 16,
                   ),
                 ),
-                onTap: () => _showBudgetDetails(budget, currencyProvider),
+                onTap: () => _showBudgetDetails(budget),
               ),
               // Action buttons row
               Padding(
@@ -738,7 +666,7 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
   }
 
   /// Show budget details dialog with currency formatting
-  void _showBudgetDetails(Budget budget, CurrencyProvider currencyProvider) {
+  void _showBudgetDetails(Budget budget) {
     showDialog(
       context: context,
       builder: (dialogContext) {
@@ -761,8 +689,7 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
                         DateFormat('MMM d, yyyy').format(budget.startDate)),
                     _buildDetailRow('End Date:',
                         DateFormat('MMM d, yyyy').format(budget.endDate)),
-                    if (budget.currency != currencyProvider.currencyCode)
-                      _buildDetailRow('Currency:', budget.currency),
+                    _buildDetailRow('Currency:', budget.currency),
                   ],
                 ),
                 actions: [
@@ -829,7 +756,6 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
         _selectedCategory = budget.category;
         _startDate = budget.startDate;
         _endDate = budget.endDate;
-        _selectedCurrency = budget.currency;
       });
     } else {
       // If in tab view, navigate to edit screen

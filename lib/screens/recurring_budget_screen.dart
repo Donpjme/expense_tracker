@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
 import '../models/recurring_budget.dart';
 import '../models/category.dart';
 import '../services/database_service.dart';
 import '../services/currency_service.dart';
-import '../providers/currency_provider.dart';
 import 'package:logger/logger.dart';
 
 /// Screen for managing recurring budgets
@@ -18,10 +16,10 @@ class RecurringBudgetScreen extends StatefulWidget {
   });
 
   @override
-  RecurringBudgetScreenState createState() => RecurringBudgetScreenState();
+  State<RecurringBudgetScreen> createState() => _RecurringBudgetScreenState();
 }
 
-class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
+class _RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
   final _formKey = GlobalKey<FormState>();
   final _budgetLimitController = TextEditingController();
   final _logger = Logger();
@@ -38,7 +36,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
 
   // Currency related fields
   String _currencyCode = 'USD';
-  String _selectedCurrency = 'USD';
+  String _currencySymbol = '\$';
 
   @override
   void initState() {
@@ -51,7 +49,6 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
       _selectedCategory = widget.budgetToEdit!.category;
       _selectedFrequency = widget.budgetToEdit!.frequency;
       _startDate = widget.budgetToEdit!.startDate;
-      _selectedCurrency = widget.budgetToEdit!.currency;
     }
 
     _initializeData();
@@ -62,11 +59,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
       // Initialize currency service first
       await _currencyService.initialize();
       _currencyCode = await _currencyService.getCurrencyCode();
-
-      // Set the selected currency from the app's default if not editing
-      if (!_isEditing) {
-        _selectedCurrency = _currencyCode;
-      }
+      _currencySymbol = await _currencyService.getCurrencySymbol();
 
       // Then load other data
       await loadData();
@@ -132,7 +125,6 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
     _selectedCategory = null;
     _selectedFrequency = null;
     _startDate = DateTime.now();
-    _selectedCurrency = _currencyCode; // Reset to app default currency
   }
 
   /// Save or update a recurring budget
@@ -143,18 +135,8 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
       });
 
       try {
-        // Get the currency provider for conversions if needed
-        final currencyProvider =
-            Provider.of<CurrencyProvider>(context, listen: false);
-
         // Parse amount from input
         double budgetLimit = double.parse(_budgetLimitController.text);
-
-        // Convert amount to app currency if different from selected
-        if (_selectedCurrency != currencyProvider.currencyCode) {
-          budgetLimit = await currencyProvider.convertToAppCurrency(
-              budgetLimit, _selectedCurrency);
-        }
 
         if (_isEditing) {
           // Update existing recurring budget
@@ -165,7 +147,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
             startDate: _startDate,
             nextDate: _calculateNextDate(_startDate, _selectedFrequency!),
             frequency: _selectedFrequency!,
-            currency: _selectedCurrency,
+            currency: _currencyCode, // Use app's currency code
           );
 
           await DatabaseService().updateRecurringBudget(updatedBudget);
@@ -193,7 +175,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
             startDate: _startDate,
             nextDate: _calculateNextDate(_startDate, _selectedFrequency!),
             frequency: _selectedFrequency!,
-            currency: _selectedCurrency,
+            currency: _currencyCode, // Use app's currency code
           );
 
           await DatabaseService().insertRecurringBudget(newRecurringBudget);
@@ -269,15 +251,12 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Get the current currency provider
-    final currencyProvider = Provider.of<CurrencyProvider>(context);
-
     // No more appbar since this will be used in tab view
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
         : Column(
             children: [
-              if (_isAddingNew) _buildAddForm(currencyProvider),
+              if (_isAddingNew) _buildAddForm(),
               if (!_isAddingNew ||
                   _isEditing) // Only show list when not adding new and not editing
                 Expanded(
@@ -315,7 +294,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
                           itemCount: _recurringBudgets.length,
                           itemBuilder: (context, index) {
                             final budget = _recurringBudgets[index];
-                            return _buildBudgetCard(budget, currencyProvider);
+                            return _buildBudgetCard(budget);
                           },
                         ),
                 ),
@@ -323,8 +302,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
           );
   }
 
-  Widget _buildBudgetCard(
-      RecurringBudget budget, CurrencyProvider currencyProvider) {
+  Widget _buildBudgetCard(RecurringBudget budget) {
     return FutureBuilder<String>(
         future: _currencyService.formatCurrency(
             budget.budgetLimit, budget.currency),
@@ -421,7 +399,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
   }
 
   /// Form for adding or editing a recurring budget
-  Widget _buildAddForm(CurrencyProvider currencyProvider) {
+  Widget _buildAddForm() {
     return Container(
       color: Theme.of(context).colorScheme.surface,
       padding: const EdgeInsets.all(16),
@@ -463,85 +441,37 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Budget limit field with currency selection
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Budget limit field
-                Expanded(
-                  flex: 3,
-                  child: TextFormField(
-                    controller: _budgetLimitController,
-                    decoration: InputDecoration(
-                      labelText: 'Budget Limit',
-                      prefixIcon: Text(
-                        '  ${_currencyService.currencySymbols[_selectedCurrency] ?? _selectedCurrency} ',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      prefixIconConstraints:
-                          const BoxConstraints(minWidth: 0, minHeight: 0),
-                      border: const OutlineInputBorder(),
-                    ),
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter a budget limit';
-                      }
-                      if (double.tryParse(value) == null) {
-                        return 'Please enter a valid number';
-                      }
-                      return null;
-                    },
+            // Budget limit field with currency symbol
+            TextFormField(
+              controller: _budgetLimitController,
+              decoration: InputDecoration(
+                labelText: 'Budget Limit',
+                prefixIcon: Text(
+                  '  $_currencySymbol ',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(width: 8),
-
-                // Currency dropdown
-                Expanded(
-                  flex: 2,
-                  child: DropdownButtonFormField<String>(
-                    value: _selectedCurrency,
-                    decoration: const InputDecoration(
-                      labelText: 'Currency',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: _currencyService.supportedCurrencies
-                        .map((currency) => DropdownMenuItem(
-                              value: currency,
-                              child: Text(currency),
-                            ))
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() {
-                          _selectedCurrency = value;
-                        });
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-
-            // Show conversion info if different currency
-            if (_selectedCurrency != currencyProvider.currencyCode)
-              Padding(
-                padding: const EdgeInsets.only(top: 4, left: 8),
-                child: Text(
-                  'Will be converted to ${currencyProvider.currencyCode} on save',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontStyle: FontStyle.italic,
-                    color: Colors.grey[600],
-                  ),
-                ),
+                prefixIconConstraints:
+                    const BoxConstraints(minWidth: 0, minHeight: 0),
+                border: const OutlineInputBorder(),
+                helperText: 'Currency: $_currencyCode',
               ),
-
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'Please enter a budget limit';
+                }
+                if (double.tryParse(value) == null) {
+                  return 'Please enter a valid number';
+                }
+                return null;
+              },
+            ),
             const SizedBox(height: 12),
+
             DropdownButtonFormField<String>(
               value: _selectedFrequency,
               decoration: const InputDecoration(
@@ -638,7 +568,6 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
         _selectedCategory = budget.category;
         _selectedFrequency = budget.frequency;
         _startDate = budget.startDate;
-        _selectedCurrency = budget.currency;
         _isEditing = true;
         _isAddingNew = true;
       });
