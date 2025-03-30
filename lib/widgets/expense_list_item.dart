@@ -22,11 +22,12 @@ class ExpenseListItem extends StatefulWidget {
 }
 
 class _ExpenseListItemState extends State<ExpenseListItem> {
-  final currencyService = CurrencyService();
-  String defaultCurrency = 'USD';
-  String formattedAmount = '';
-  String? formattedOriginalAmount;
+  final CurrencyService _currencyService = CurrencyService();
   bool _isLoading = true;
+  String _formattedAmount = '';
+  String? _formattedOriginalAmount;
+  String _defaultCurrency = '';
+  bool _showOriginalAmount = false;
 
   @override
   void initState() {
@@ -34,20 +35,38 @@ class _ExpenseListItemState extends State<ExpenseListItem> {
     _loadCurrencyData();
   }
 
+  @override
+  void didUpdateWidget(ExpenseListItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.expense.amount != widget.expense.amount ||
+        oldWidget.expense.currency != widget.expense.currency ||
+        oldWidget.expense.originalAmount != widget.expense.originalAmount) {
+      _loadCurrencyData();
+    }
+  }
+
   Future<void> _loadCurrencyData() async {
     try {
-      defaultCurrency = await currencyService.getCurrencyCode();
+      setState(() {
+        _isLoading = true;
+      });
 
-      // Format the amounts
-      final symbol = await currencyService.getCurrencySymbol();
-      formattedAmount = '$symbol${widget.expense.amount.toStringAsFixed(2)}';
+      // Get default currency code
+      _defaultCurrency = await _currencyService.getCurrencyCode();
 
-      if (widget.expense.originalAmount != null &&
-          widget.expense.currency != defaultCurrency) {
+      // Format the amount
+      _formattedAmount =
+          await _currencyService.formatCurrency(widget.expense.amount);
+
+      // Format original amount if it exists and is different from default currency
+      _showOriginalAmount = widget.expense.originalAmount != null &&
+          widget.expense.currency != _defaultCurrency;
+
+      if (_showOriginalAmount) {
         final originalSymbol =
-            currencyService.currencySymbols[widget.expense.currency] ??
+            _currencyService.currencySymbols[widget.expense.currency] ??
                 widget.expense.currency;
-        formattedOriginalAmount =
+        _formattedOriginalAmount =
             '$originalSymbol${widget.expense.originalAmount!.toStringAsFixed(2)}';
       }
 
@@ -57,21 +76,36 @@ class _ExpenseListItemState extends State<ExpenseListItem> {
         });
       }
     } catch (e) {
+      // Fallback to basic formatting
       if (mounted) {
         setState(() {
-          formattedAmount = '\$${widget.expense.amount.toStringAsFixed(2)}';
+          _formattedAmount = '\$${widget.expense.amount.toStringAsFixed(2)}';
           _isLoading = false;
         });
       }
     }
   }
 
+  // Helper method to format date
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final expenseDate = DateTime(date.year, date.month, date.day);
+
+    if (expenseDate == today) {
+      return 'Today';
+    } else if (expenseDate == yesterday) {
+      return 'Yesterday';
+    } else {
+      return DateFormat('MMM d, yyyy').format(date);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final bool isDifferentCurrency = widget.expense.currency != defaultCurrency;
-
-    // Format date in a user-friendly way
-    String formattedDate = _formatDate(widget.expense.date);
+    final Color textColor =
+        widget.expense.amount > 100 ? Colors.red : Colors.green;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -87,15 +121,12 @@ class _ExpenseListItemState extends State<ExpenseListItem> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${widget.expense.category} • $formattedDate',
+                  '${widget.expense.category} • ${_formatDate(widget.expense.date)}',
                   overflow: TextOverflow.ellipsis,
                 ),
-                // Show original amount if in a different currency
-                if (isDifferentCurrency &&
-                    widget.expense.originalAmount != null &&
-                    formattedOriginalAmount != null)
+                if (_showOriginalAmount && _formattedOriginalAmount != null)
                   Text(
-                    'Original: $formattedOriginalAmount',
+                    'Original: $_formattedOriginalAmount (${widget.expense.currency})',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.grey[600],
@@ -116,25 +147,24 @@ class _ExpenseListItemState extends State<ExpenseListItem> {
                 ? const SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2))
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : RichText(
                     textAlign: TextAlign.right,
                     text: TextSpan(
                       style: DefaultTextStyle.of(context).style,
                       children: [
                         TextSpan(
-                          text: formattedAmount,
+                          text: _formattedAmount,
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
-                            color: widget.expense.amount > 100
-                                ? Colors.red
-                                : Colors.green,
+                            color: textColor,
                           ),
                         ),
-                        if (isDifferentCurrency)
+                        if (widget.expense.currency != _defaultCurrency)
                           TextSpan(
-                            text: '\n$defaultCurrency',
+                            text: '\n$_defaultCurrency',
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey[600],
@@ -200,21 +230,5 @@ class _ExpenseListItemState extends State<ExpenseListItem> {
         ],
       ),
     );
-  }
-
-  // Helper method to format date
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-    final expenseDate = DateTime(date.year, date.month, date.day);
-
-    if (expenseDate == today) {
-      return 'Today';
-    } else if (expenseDate == yesterday) {
-      return 'Yesterday';
-    } else {
-      return DateFormat('MMM d, yyyy').format(date);
-    }
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:expense_tracker/services/database_service.dart';
+import 'package:expense_tracker/services/currency_service.dart';
 import 'package:expense_tracker/widgets/summary_card.dart';
 import 'package:expense_tracker/widgets/budget_progress_card.dart';
 import 'package:expense_tracker/widgets/analytics_dashboard_widget.dart';
@@ -20,11 +21,44 @@ class DashboardScreenState extends State<DashboardScreen> {
   List<Expense> _expenses = [];
   List<Budget> _budgets = [];
   bool _isLoading = true;
+  final CurrencyService _currencyService = CurrencyService();
+  String _currencyCode = 'USD';
+  String _currencySymbol = '\$';
 
   @override
   void initState() {
     super.initState();
-    loadData();
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    if (!mounted) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Initialize currency service first
+      await _currencyService.initialize();
+      _currencyCode = await _currencyService.getCurrencyCode();
+      _currencySymbol = await _currencyService.getCurrencySymbol();
+
+      // Then load other data
+      await loadData();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to initialize: $e')),
+          );
+        }
+      }
+    }
   }
 
   // Make this public so it can be called from HomeScreen
@@ -53,9 +87,11 @@ class DashboardScreenState extends State<DashboardScreen> {
         _isLoading = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load data: $e')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load data: $e')),
+        );
+      }
     }
   }
 
@@ -121,13 +157,45 @@ class DashboardScreenState extends State<DashboardScreen> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  // Currency information bar
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primaryContainer
+                          .withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.currency_exchange,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Currency: $_currencyCode ($_currencySymbol)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
                   // Monthly summary cards
                   Row(
                     children: [
                       Expanded(
                         child: SummaryCard(
                           title: 'This Month',
-                          value: '\$${_totalSpentThisMonth.toStringAsFixed(2)}',
+                          value: _totalSpentThisMonth,
                           icon: Icons.account_balance_wallet,
                           color: Theme.of(context).colorScheme.primary,
                           onTap: () {
@@ -145,7 +213,7 @@ class DashboardScreenState extends State<DashboardScreen> {
                       Expanded(
                         child: SummaryCard(
                           title: 'Total Budget',
-                          value: '\$${_totalBudget.toStringAsFixed(2)}',
+                          value: _totalBudget,
                           icon: Icons.account_balance_wallet,
                           color: Theme.of(context).colorScheme.secondary,
                         ),
@@ -223,6 +291,8 @@ class DashboardScreenState extends State<DashboardScreen> {
                     AnalyticsDashboardWidget(
                       expenses: _expenses,
                       budgets: _budgets,
+                      currencyCode: _currencyCode,
+                      currencySymbol: _currencySymbol,
                       onSeeMorePressed: () {
                         Navigator.push(
                           context,
@@ -250,29 +320,40 @@ class DashboardScreenState extends State<DashboardScreen> {
                           Color((expense.category.hashCode & 0xFFFFFF) |
                               0xFF000000);
 
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: color,
-                            child: Text(
-                              expense.category[0],
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                          ),
-                          title: Text(expense.title),
-                          subtitle: Text(
-                            '${expense.category} • ${_formatDate(expense.date)}',
-                          ),
-                          trailing: Text(
-                            '\$${expense.amount.toStringAsFixed(2)}',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: expense.amount > 100 ? Colors.red : null,
-                            ),
-                          ),
-                        ),
-                      );
+                      return FutureBuilder<String>(
+                          future:
+                              _currencyService.formatCurrency(expense.amount),
+                          builder: (context, snapshot) {
+                            final formattedAmount = snapshot.hasData
+                                ? snapshot.data!
+                                : '$_currencySymbol${expense.amount.toStringAsFixed(2)}';
+
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: color,
+                                  child: Text(
+                                    expense.category[0],
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
+                                ),
+                                title: Text(expense.title),
+                                subtitle: Text(
+                                  '${expense.category} • ${_formatDate(expense.date)}',
+                                ),
+                                trailing: Text(
+                                  formattedAmount,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: expense.amount > 100
+                                        ? Colors.red
+                                        : null,
+                                  ),
+                                ),
+                              ),
+                            );
+                          });
                     })
                   else
                     Center(

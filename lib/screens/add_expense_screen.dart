@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/expense.dart';
 import '../models/category.dart';
 import '../services/database_service.dart';
+import '../providers/currency_provider.dart';
 import 'package:logger/logger.dart';
 import 'receipt_scanner_screen.dart';
 import 'package:intl/intl.dart';
@@ -22,11 +24,26 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   bool _isLoading = false;
   final Logger _logger = Logger();
   DateTime _selectedDate = DateTime.now();
+  
+  // New field to track selected currency
+  String _selectedCurrency = 'USD'; // Will be updated with app currency on init
 
   @override
   void initState() {
     super.initState();
     _loadCategories();
+  }
+  
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Get the app's currency when dependencies change
+    final currencyProvider = Provider.of<CurrencyProvider>(context, listen: false);
+    if (_selectedCurrency != currencyProvider.currencyCode) {
+      setState(() {
+        _selectedCurrency = currencyProvider.currencyCode;
+      });
+    }
   }
 
   Future<void> _loadCategories() async {
@@ -59,12 +76,26 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       });
 
       try {
+        // Get the currency provider
+        final currencyProvider = Provider.of<CurrencyProvider>(context, listen: false);
+        
+        // Parse amount from input
+        double amount = double.parse(_amountController.text);
+        
+        // Convert amount to app currency if different
+        double originalAmount = amount;
+        if (_selectedCurrency != currencyProvider.currencyCode) {
+          amount = await currencyProvider.convertToAppCurrency(amount, _selectedCurrency);
+        }
+
         final newExpense = Expense(
           id: DateTime.now().toString(),
           title: _titleController.text,
-          amount: double.parse(_amountController.text),
+          amount: amount,
           date: _selectedDate,
           category: _selectedCategory ?? 'Uncategorized',
+          currency: currencyProvider.currencyCode,
+          originalAmount: _selectedCurrency != currencyProvider.currencyCode ? originalAmount : null,
         );
 
         await DatabaseService().insertExpense(newExpense);
@@ -190,6 +221,10 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         if (receiptData['date'] != null) {
           _selectedDate = receiptData['date'];
         }
+        // Set currency if provided in receipt data
+        if (receiptData['currency'] != null) {
+          _selectedCurrency = receiptData['currency'];
+        }
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -203,6 +238,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Get the currency provider
+    final currencyProvider = Provider.of<CurrencyProvider>(context);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Add Expense'),
@@ -257,26 +295,57 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Amount field
-                      TextFormField(
-                        controller: _amountController,
-                        decoration: const InputDecoration(
-                          labelText: 'Amount',
-                          prefixIcon: Icon(Icons.attach_money),
-                          border: OutlineInputBorder(),
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter an amount';
-                          }
-                          if (double.tryParse(value) == null) {
-                            return 'Please enter a valid number';
-                          }
-                          return null;
-                        },
-                        textInputAction: TextInputAction.next,
+                      // Amount field with currency indicator
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Amount field
+                          Expanded(
+                            flex: 3,
+                            child: TextFormField(
+                              controller: _amountController,
+                              decoration: InputDecoration(
+                                labelText: 'Amount',
+                                prefixIcon: Text(
+                                  '  ${currencyProvider.currencySymbol} ',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                prefixIconConstraints: const BoxConstraints(
+                                    minWidth: 0, minHeight: 0),
+                                border: const OutlineInputBorder(),
+                              ),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'Please enter an amount';
+                                }
+                                if (double.tryParse(value) == null) {
+                                  return 'Please enter a valid number';
+                                }
+                                return null;
+                              },
+                              textInputAction: TextInputAction.next,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+
+                          // Currency indicator
+                          Container(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Text(
+                              currencyProvider.currencyCode,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 16),
 

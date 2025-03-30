@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../models/recurring_expense.dart';
 import '../models/category.dart';
 import '../services/database_service.dart';
+import '../services/currency_service.dart';
 import 'package:logger/logger.dart';
 
 /// Screen for managing recurring expenses
@@ -15,14 +16,15 @@ class RecurringExpenseScreen extends StatefulWidget {
   });
 
   @override
-  RecurringExpenseScreenState createState() => RecurringExpenseScreenState();
+  State<RecurringExpenseScreen> createState() => _RecurringExpenseScreenState();
 }
 
-class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
+class _RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _amountController = TextEditingController();
   final _logger = Logger();
+  final CurrencyService _currencyService = CurrencyService();
   DateTime _startDate = DateTime.now();
   String? _selectedFrequency = 'Monthly';
   String? _selectedCategory;
@@ -32,6 +34,10 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
   bool _isLoading = true;
   bool _isAddingNew = false;
   bool _isEditing = false;
+
+  // Currency related fields
+  String _currencyCode = 'USD';
+  String _currencySymbol = '\$';
 
   @override
   void initState() {
@@ -47,7 +53,26 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
       _startDate = widget.expenseToEdit!.startDate;
     }
 
-    loadData();
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    try {
+      // Initialize currency service first
+      await _currencyService.initialize();
+      _currencyCode = await _currencyService.getCurrencyCode();
+      _currencySymbol = await _currencyService.getCurrencySymbol();
+
+      // Then load other data
+      await loadData();
+    } catch (e) {
+      _logger.e('Error initializing data: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   /// Load categories and recurring expenses from the database
@@ -105,8 +130,6 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
     _startDate = DateTime.now();
   }
 
-  // Rest of the methods remain the same...
-
   /// Save or update a recurring expense
   Future<void> _saveRecurringExpense() async {
     if (_formKey.currentState!.validate()) {
@@ -115,17 +138,21 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
       });
 
       try {
+        // Parse amount from input
+        double amount = double.parse(_amountController.text);
+
         if (_isEditing && widget.expenseToEdit != null) {
           // Update existing recurring expense
           final updatedExpense = RecurringExpense(
             id: widget.expenseToEdit!.id,
             title: _titleController.text,
-            amount: double.parse(_amountController.text),
+            amount: amount,
             category: _selectedCategory!,
             startDate: _startDate,
             nextDate: _calculateNextDate(_startDate, _selectedFrequency!),
             frequency: _selectedFrequency!,
             isActive: true, // Set as active
+            currency: _currencyCode, // Use app's default currency
           );
 
           await DatabaseService().updateRecurringExpense(updatedExpense);
@@ -149,12 +176,13 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
           final newRecurringExpense = RecurringExpense(
             id: DateTime.now().toString(),
             title: _titleController.text,
-            amount: double.parse(_amountController.text),
+            amount: amount,
             category: _selectedCategory!,
             startDate: _startDate,
             nextDate: _calculateNextDate(_startDate, _selectedFrequency!),
             frequency: _selectedFrequency!,
             isActive: true, // Set as active by default
+            currency: _currencyCode, // Use app's default currency
           );
 
           await DatabaseService().insertRecurringExpense(newRecurringExpense);
@@ -270,104 +298,7 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
                           itemCount: _recurringExpenses.length,
                           itemBuilder: (context, index) {
                             final expense = _recurringExpenses[index];
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              child: Column(
-                                children: [
-                                  ListTile(
-                                    title: Text(
-                                      expense.title,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold),
-                                    ),
-                                    subtitle: Text(
-                                      '${expense.frequency} • Next: ${DateFormat('MMM d, yyyy').format(expense.nextDate)}',
-                                    ),
-                                    trailing: Text(
-                                      '\$${expense.amount.toStringAsFixed(2)}',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                        color: expense.amount > 100
-                                            ? Colors.red
-                                            : Colors.green,
-                                      ),
-                                    ),
-                                    leading: CircleAvatar(
-                                      backgroundColor: Theme.of(context)
-                                          .colorScheme
-                                          .primary
-                                          .withOpacity(0.1),
-                                      child: Icon(
-                                        Icons.repeat,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary,
-                                      ),
-                                    ),
-                                  ),
-                                  // Action buttons
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                        right: 8, bottom: 8, left: 8),
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
-                                      children: [
-                                        // Edit button
-                                        TextButton.icon(
-                                          icon: Icon(
-                                            Icons.edit,
-                                            size: 20,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primary,
-                                          ),
-                                          label: Text(
-                                            'Edit',
-                                            style: TextStyle(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .primary,
-                                            ),
-                                          ),
-                                          style: TextButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 8,
-                                            ),
-                                          ),
-                                          onPressed: () =>
-                                              _editExpense(expense),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        // Delete button
-                                        TextButton.icon(
-                                          icon: const Icon(
-                                            Icons.delete,
-                                            size: 20,
-                                            color: Colors.red,
-                                          ),
-                                          label: const Text(
-                                            'Delete',
-                                            style: TextStyle(
-                                              color: Colors.red,
-                                            ),
-                                          ),
-                                          style: TextButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 8,
-                                            ),
-                                          ),
-                                          onPressed: () =>
-                                              _deleteExpense(expense),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
+                            return _buildExpenseCard(expense);
                           },
                         ),
                 ),
@@ -375,8 +306,101 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
           );
   }
 
-  // The remaining methods from the original file would go here...
-  // I'm omitting them for brevity, but they should be included as-is
+  Widget _buildExpenseCard(RecurringExpense expense) {
+    return FutureBuilder<String>(
+        future:
+            _currencyService.formatCurrency(expense.amount, expense.currency),
+        builder: (context, snapshot) {
+          final formattedAmount = snapshot.hasData
+              ? snapshot.data!
+              : '${expense.currency} ${expense.amount.toStringAsFixed(2)}';
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Column(
+              children: [
+                ListTile(
+                  title: Text(
+                    expense.title,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    '${expense.frequency} • Next: ${DateFormat('MMM d, yyyy').format(expense.nextDate)}',
+                  ),
+                  trailing: Text(
+                    formattedAmount,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: expense.amount > 100 ? Colors.red : Colors.green,
+                    ),
+                  ),
+                  leading: CircleAvatar(
+                    backgroundColor:
+                        Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                    child: Icon(
+                      Icons.repeat,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+                // Action buttons
+                Padding(
+                  padding: const EdgeInsets.only(right: 8, bottom: 8, left: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      // Edit button
+                      TextButton.icon(
+                        icon: Icon(
+                          Icons.edit,
+                          size: 20,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        label: Text(
+                          'Edit',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                        onPressed: () => _editExpense(expense),
+                      ),
+                      const SizedBox(width: 8),
+                      // Delete button
+                      TextButton.icon(
+                        icon: const Icon(
+                          Icons.delete,
+                          size: 20,
+                          color: Colors.red,
+                        ),
+                        label: const Text(
+                          'Delete',
+                          style: TextStyle(
+                            color: Colors.red,
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                        onPressed: () => _deleteExpense(expense),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        });
+  }
 
   /// Form for adding or editing a recurring expense
   Widget _buildAddForm() {
@@ -408,12 +432,23 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
               },
             ),
             const SizedBox(height: 12),
+
+            // Amount field with currency symbol
             TextFormField(
               controller: _amountController,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Amount',
-                prefixIcon: Icon(Icons.attach_money),
-                border: OutlineInputBorder(),
+                prefixIcon: Text(
+                  '  $_currencySymbol ',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                prefixIconConstraints:
+                    const BoxConstraints(minWidth: 0, minHeight: 0),
+                border: const OutlineInputBorder(),
+                helperText: 'Currency: $_currencyCode',
               ),
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
@@ -428,6 +463,7 @@ class RecurringExpenseScreenState extends State<RecurringExpenseScreen> {
               },
             ),
             const SizedBox(height: 12),
+
             DropdownButtonFormField<String>(
               value: _selectedCategory,
               decoration: const InputDecoration(

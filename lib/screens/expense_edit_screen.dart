@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../models/expense.dart';
 import '../models/category.dart';
 import '../services/database_service.dart';
 import '../services/currency_service.dart';
+import '../providers/currency_provider.dart';
 import '../widgets/currency_selector.dart';
 
 /// Screen for editing an existing expense
@@ -51,11 +53,11 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
     _originalCurrency = widget.expense.currency;
     _selectedCurrency = widget.expense.currency;
 
-    _loadCurrencyAndCategories();
+    _loadCategories();
   }
 
-  /// Load categories from the database and initialize currency service
-  Future<void> _loadCurrencyAndCategories() async {
+  /// Load categories from the database
+  Future<void> _loadCategories() async {
     setState(() {
       _isLoading = true;
     });
@@ -71,8 +73,10 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
         _isLoading = false;
       });
 
-      // Update amount preview if currency is different from default
-      if (_selectedCurrency != _currencyService.defaultCurrency) {
+      // Update amount preview if currency is different from app currency
+      final currencyProvider =
+          Provider.of<CurrencyProvider>(context, listen: false);
+      if (_selectedCurrency != currencyProvider.currencyCode) {
         _updateAmountPreview();
       }
     } catch (e) {
@@ -80,9 +84,11 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
       setState(() {
         _isLoading = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load categories: $e')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load categories: $e')),
+        );
+      }
     }
   }
 
@@ -94,28 +100,30 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
       });
 
       try {
+        // Get the currency provider
+        final currencyProvider =
+            Provider.of<CurrencyProvider>(context, listen: false);
+
         // Parse amount from input
         double originalAmount = double.parse(_amountController.text);
-        double amountInDefaultCurrency = originalAmount;
+        double amountInAppCurrency = originalAmount;
 
-        // Convert to default currency if different from selected
-        if (_selectedCurrency != _currencyService.defaultCurrency) {
-          amountInDefaultCurrency = await _currencyService.convertCurrency(
-              originalAmount,
-              _selectedCurrency,
-              _currencyService.defaultCurrency);
+        // Convert to app currency if different from selected
+        if (_selectedCurrency != currencyProvider.currencyCode) {
+          amountInAppCurrency = await currencyProvider.convertToAppCurrency(
+              originalAmount, _selectedCurrency);
         }
 
         final updatedExpense = Expense(
           id: widget.expense.id,
           title: _titleController.text,
-          amount: _selectedCurrency == _currencyService.defaultCurrency
+          amount: _selectedCurrency == currencyProvider.currencyCode
               ? originalAmount
-              : amountInDefaultCurrency,
+              : amountInAppCurrency,
           date: _selectedDate,
           category: _selectedCategory ?? 'Uncategorized',
           currency: _selectedCurrency,
-          originalAmount: _selectedCurrency != _currencyService.defaultCurrency
+          originalAmount: _selectedCurrency != currencyProvider.currencyCode
               ? originalAmount
               : null,
         );
@@ -227,15 +235,17 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
 
     try {
       final amount = double.parse(amountText);
+      final currencyProvider =
+          Provider.of<CurrencyProvider>(context, listen: false);
 
-      // Only show preview if not in default currency
-      if (_selectedCurrency != _currencyService.defaultCurrency) {
+      // Only show preview if not in app currency
+      if (_selectedCurrency != currencyProvider.currencyCode) {
         setState(() {
           _isConvertingCurrency = true;
         });
 
-        final converted = await _currencyService.convertCurrency(
-            amount, _selectedCurrency, _currencyService.defaultCurrency);
+        final converted = await currencyProvider.convertToAppCurrency(
+            amount, _selectedCurrency);
 
         if (!mounted) return;
 
@@ -258,6 +268,9 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Get the currency provider
+    final currencyProvider = Provider.of<CurrencyProvider>(context);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Edit Expense'),
@@ -363,7 +376,7 @@ class _ExpenseEditScreenState extends State<ExpenseEditScreen> {
                                   ),
                                 )
                               : Text(
-                                  'Will be saved as: ${_currencyService.formatCurrency(_convertedAmount!, _currencyService.defaultCurrency)} (${_currencyService.defaultCurrency})',
+                                  'Will be saved as: ${currencyProvider.formatAmount(_convertedAmount!)} (${currencyProvider.currencyCode})',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontStyle: FontStyle.italic,

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../models/recurring_budget.dart';
 import '../models/category.dart';
 import '../services/database_service.dart';
+import '../services/currency_service.dart';
 import 'package:logger/logger.dart';
 
 /// Screen for managing recurring budgets
@@ -15,13 +16,14 @@ class RecurringBudgetScreen extends StatefulWidget {
   });
 
   @override
-  RecurringBudgetScreenState createState() => RecurringBudgetScreenState();
+  State<RecurringBudgetScreen> createState() => _RecurringBudgetScreenState();
 }
 
-class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
+class _RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
   final _formKey = GlobalKey<FormState>();
   final _budgetLimitController = TextEditingController();
   final _logger = Logger();
+  final CurrencyService _currencyService = CurrencyService();
   DateTime _startDate = DateTime.now();
   String? _selectedFrequency;
   String? _selectedCategory;
@@ -31,6 +33,10 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
   bool _isLoading = true;
   bool _isAddingNew = false;
   bool _isEditing = false;
+
+  // Currency related fields
+  String _currencyCode = 'USD';
+  String _currencySymbol = '\$';
 
   @override
   void initState() {
@@ -45,7 +51,26 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
       _startDate = widget.budgetToEdit!.startDate;
     }
 
-    loadData();
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    try {
+      // Initialize currency service first
+      await _currencyService.initialize();
+      _currencyCode = await _currencyService.getCurrencyCode();
+      _currencySymbol = await _currencyService.getCurrencySymbol();
+
+      // Then load other data
+      await loadData();
+    } catch (e) {
+      _logger.e('Error initializing data: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   /// Load categories and recurring budgets from the database
@@ -110,15 +135,19 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
       });
 
       try {
+        // Parse amount from input
+        double budgetLimit = double.parse(_budgetLimitController.text);
+
         if (_isEditing) {
           // Update existing recurring budget
           final updatedBudget = RecurringBudget(
             id: widget.budgetToEdit!.id,
             category: _selectedCategory!,
-            budgetLimit: double.parse(_budgetLimitController.text),
+            budgetLimit: budgetLimit,
             startDate: _startDate,
             nextDate: _calculateNextDate(_startDate, _selectedFrequency!),
             frequency: _selectedFrequency!,
+            currency: _currencyCode, // Use app's currency code
           );
 
           await DatabaseService().updateRecurringBudget(updatedBudget);
@@ -142,10 +171,11 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
           final newRecurringBudget = RecurringBudget(
             id: DateTime.now().toString(),
             category: _selectedCategory!,
-            budgetLimit: double.parse(_budgetLimitController.text),
+            budgetLimit: budgetLimit,
             startDate: _startDate,
             nextDate: _calculateNextDate(_startDate, _selectedFrequency!),
             frequency: _selectedFrequency!,
+            currency: _currencyCode, // Use app's currency code
           );
 
           await DatabaseService().insertRecurringBudget(newRecurringBudget);
@@ -170,6 +200,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
         setState(() {
           _isAddingNew = false;
           _isEditing = false;
+          _isLoading = false;
         });
       } catch (e) {
         _logger.e('Error saving recurring budget: $e');
@@ -187,16 +218,19 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
   }
 
   /// Calculate the next occurrence date based on frequency
-  DateTime _calculateNextDate(DateTime startDate, String frequency) {
+  DateTime _calculateNextDate(DateTime currentDate, String frequency) {
     switch (frequency) {
       case 'Monthly':
-        return DateTime(startDate.year, startDate.month + 1, startDate.day);
+        return DateTime(
+            currentDate.year, currentDate.month + 1, currentDate.day);
       case 'Quarterly':
-        return DateTime(startDate.year, startDate.month + 3, startDate.day);
+        return DateTime(
+            currentDate.year, currentDate.month + 3, currentDate.day);
       case 'Yearly':
-        return DateTime(startDate.year + 1, startDate.month, startDate.day);
+        return DateTime(
+            currentDate.year + 1, currentDate.month, currentDate.day);
       default:
-        return startDate;
+        return currentDate;
     }
   }
 
@@ -260,108 +294,108 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
                           itemCount: _recurringBudgets.length,
                           itemBuilder: (context, index) {
                             final budget = _recurringBudgets[index];
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              child: Column(
-                                children: [
-                                  ListTile(
-                                    title: Text(
-                                      budget.category,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold),
-                                    ),
-                                    subtitle: Text(
-                                      '${budget.frequency} • Next: ${DateFormat('MMM d, yyyy').format(budget.nextDate)}',
-                                    ),
-                                    trailing: Text(
-                                      '\$${budget.budgetLimit.toStringAsFixed(2)}',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary,
-                                      ),
-                                    ),
-                                    leading: CircleAvatar(
-                                      backgroundColor: Theme.of(context)
-                                          .colorScheme
-                                          .primary
-                                          .withOpacity(0.1),
-                                      child: Icon(
-                                        Icons.sync,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary,
-                                      ),
-                                    ),
-                                  ),
-                                  // Action buttons
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                        right: 8, bottom: 8, left: 8),
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
-                                      children: [
-                                        // Edit button
-                                        TextButton.icon(
-                                          icon: Icon(
-                                            Icons.edit,
-                                            size: 20,
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primary,
-                                          ),
-                                          label: Text(
-                                            'Edit',
-                                            style: TextStyle(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .primary,
-                                            ),
-                                          ),
-                                          style: TextButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 8,
-                                            ),
-                                          ),
-                                          onPressed: () => _editBudget(budget),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        // Delete button
-                                        TextButton.icon(
-                                          icon: const Icon(
-                                            Icons.delete,
-                                            size: 20,
-                                            color: Colors.red,
-                                          ),
-                                          label: const Text(
-                                            'Delete',
-                                            style: TextStyle(
-                                              color: Colors.red,
-                                            ),
-                                          ),
-                                          style: TextButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 8,
-                                            ),
-                                          ),
-                                          onPressed: () =>
-                                              _deleteBudget(budget),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
+                            return _buildBudgetCard(budget);
                           },
                         ),
                 ),
             ],
           );
+  }
+
+  Widget _buildBudgetCard(RecurringBudget budget) {
+    return FutureBuilder<String>(
+        future: _currencyService.formatCurrency(
+            budget.budgetLimit, budget.currency),
+        builder: (context, snapshot) {
+          final formattedAmount = snapshot.hasData
+              ? snapshot.data!
+              : '${budget.currency} ${budget.budgetLimit.toStringAsFixed(2)}';
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Column(
+              children: [
+                ListTile(
+                  title: Text(
+                    budget.category,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(
+                    '${budget.frequency} • Next: ${DateFormat('MMM d, yyyy').format(budget.nextDate)}',
+                  ),
+                  trailing: Text(
+                    formattedAmount,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  leading: CircleAvatar(
+                    backgroundColor:
+                        Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                    child: Icon(
+                      Icons.sync,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+                // Action buttons
+                Padding(
+                  padding: const EdgeInsets.only(right: 8, bottom: 8, left: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      // Edit button
+                      TextButton.icon(
+                        icon: Icon(
+                          Icons.edit,
+                          size: 20,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        label: Text(
+                          'Edit',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                        onPressed: () => _editBudget(budget),
+                      ),
+                      const SizedBox(width: 8),
+                      // Delete button
+                      TextButton.icon(
+                        icon: const Icon(
+                          Icons.delete,
+                          size: 20,
+                          color: Colors.red,
+                        ),
+                        label: const Text(
+                          'Delete',
+                          style: TextStyle(
+                            color: Colors.red,
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                        onPressed: () => _deleteBudget(budget),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        });
   }
 
   /// Form for adding or editing a recurring budget
@@ -406,12 +440,23 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
               },
             ),
             const SizedBox(height: 12),
+
+            // Budget limit field with currency symbol
             TextFormField(
               controller: _budgetLimitController,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Budget Limit',
-                prefixIcon: Icon(Icons.attach_money),
-                border: OutlineInputBorder(),
+                prefixIcon: Text(
+                  '  $_currencySymbol ',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                prefixIconConstraints:
+                    const BoxConstraints(minWidth: 0, minHeight: 0),
+                border: const OutlineInputBorder(),
+                helperText: 'Currency: $_currencyCode',
               ),
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
@@ -426,6 +471,7 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
               },
             ),
             const SizedBox(height: 12),
+
             DropdownButtonFormField<String>(
               value: _selectedFrequency,
               decoration: const InputDecoration(
@@ -539,10 +585,6 @@ class RecurringBudgetScreenState extends State<RecurringBudgetScreen> {
           .then((_) => loadData());
     }
   }
-
-  // Removed _showBudgetDetails method since it's now handled inline
-
-  // Removed unused _buildDetailRow method
 
   /// Delete a recurring budget
   Future<void> _deleteBudget(RecurringBudget budget) async {

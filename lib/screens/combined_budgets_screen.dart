@@ -13,11 +13,11 @@ class _CombinedBudgetsScreenState extends State<CombinedBudgetsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
-  // Keys to access screen states
-  final GlobalKey<BudgetSettingScreenState> _budgetKey =
-      GlobalKey<BudgetSettingScreenState>();
-  final GlobalKey<RecurringBudgetScreenState> _recurringBudgetKey =
-      GlobalKey<RecurringBudgetScreenState>();
+  // Keys to access screen states - using State<T> which is the correct type
+  final GlobalKey<State<BudgetSettingScreen>> _budgetKey =
+      GlobalKey<State<BudgetSettingScreen>>();
+  final GlobalKey<State<RecurringBudgetScreen>> _recurringBudgetKey =
+      GlobalKey<State<RecurringBudgetScreen>>();
 
   @override
   void initState() {
@@ -58,7 +58,7 @@ class _CombinedBudgetsScreenState extends State<CombinedBudgetsScreen>
         controller: _tabController,
         children: [
           // Regular budgets tab
-          BudgetSettingScreen(key: _budgetKey),
+          BudgetSettingScreen(key: _budgetKey, isFullScreen: false),
 
           // Recurring budgets tab
           RecurringBudgetScreen(key: _recurringBudgetKey),
@@ -79,13 +79,21 @@ class _CombinedBudgetsScreenState extends State<CombinedBudgetsScreen>
                 .then((_) {
               // Refresh data on return
               if (_budgetKey.currentState != null) {
-                _budgetKey.currentState!.loadData();
+                // Access the loadData method - safely with dynamic cast
+                final state = _budgetKey.currentState as dynamic;
+                if (state != null && state.loadData != null) {
+                  state.loadData();
+                }
               }
             });
           } else {
             // Toggle recurring budget form if we can access the state
             if (_recurringBudgetKey.currentState != null) {
-              _recurringBudgetKey.currentState!.toggleAddForm();
+              // Access the toggleAddForm method - safely with dynamic cast
+              final state = _recurringBudgetKey.currentState as dynamic;
+              if (state != null && state.toggleAddForm != null) {
+                state.toggleAddForm();
+              }
             }
           }
         },

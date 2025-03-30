@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../models/budget.dart';
 import '../models/category.dart';
 import '../services/database_service.dart';
+import '../services/currency_service.dart';
 import 'package:logger/logger.dart';
 
 /// Screen for setting and managing budgets
@@ -20,10 +21,10 @@ class BudgetSettingScreen extends StatefulWidget {
   });
 
   @override
-  BudgetSettingScreenState createState() => BudgetSettingScreenState();
+  State<BudgetSettingScreen> createState() => _BudgetSettingScreenState();
 }
 
-class BudgetSettingScreenState extends State<BudgetSettingScreen> {
+class _BudgetSettingScreenState extends State<BudgetSettingScreen> {
   final _formKey = GlobalKey<FormState>();
   final _categoryController = TextEditingController();
   final _budgetLimitController = TextEditingController();
@@ -36,6 +37,11 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
   bool _isEditing = false;
   bool _isAddingNew = false; // Added to track whether we're adding a new budget
   final Logger _logger = Logger();
+
+  // Currency related fields
+  final CurrencyService _currencyService = CurrencyService();
+  String _currencyCode = 'USD';
+  String _currencySymbol = '\$';
 
   @override
   void initState() {
@@ -50,7 +56,26 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
       _endDate = widget.budgetToEdit!.endDate;
     }
 
-    loadData();
+    _initializeData();
+  }
+
+  Future<void> _initializeData() async {
+    try {
+      // Initialize currency service first
+      await _currencyService.initialize();
+      _currencyCode = await _currencyService.getCurrencyCode();
+      _currencySymbol = await _currencyService.getCurrencySymbol();
+
+      // Then load other data
+      await loadData();
+    } catch (e) {
+      _logger.e('Error initializing data: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   /// Load categories and budgets from the database - exposed for external access
@@ -109,14 +134,18 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
       });
 
       try {
+        // Parse amount from input
+        double budgetLimit = double.parse(_budgetLimitController.text);
+
         if (_isEditing) {
           // Update existing budget
           final updatedBudget = Budget(
             id: widget.budgetToEdit!.id,
             category: _selectedCategory ?? _categoryController.text,
-            budgetLimit: double.parse(_budgetLimitController.text),
+            budgetLimit: budgetLimit,
             startDate: _startDate,
             endDate: _endDate,
+            currency: _currencyCode, // Use app's currency code
           );
 
           await DatabaseService().updateBudget(updatedBudget);
@@ -148,9 +177,10 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
           final newBudget = Budget(
             id: DateTime.now().toString(),
             category: _selectedCategory ?? _categoryController.text,
-            budgetLimit: double.parse(_budgetLimitController.text),
+            budgetLimit: budgetLimit,
             startDate: _startDate,
             endDate: _endDate,
+            currency: _currencyCode, // Use app's currency code
           );
 
           await DatabaseService().insertBudget(newBudget);
@@ -381,7 +411,7 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
           );
   }
 
-  /// Build the budget form
+  /// Build the budget form with currency display
   Widget _buildBudgetForm() {
     return Form(
       key: _formKey,
@@ -423,13 +453,22 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Budget limit input
+          // Budget limit with currency display
           TextFormField(
             controller: _budgetLimitController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Budget Limit',
-              prefixIcon: Icon(Icons.attach_money),
-              border: OutlineInputBorder(),
+              prefixIcon: Text(
+                '  $_currencySymbol ',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              prefixIconConstraints:
+                  const BoxConstraints(minWidth: 0, minHeight: 0),
+              border: const OutlineInputBorder(),
+              helperText: 'Currency: $_currencyCode',
             ),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             validator: (value) {
@@ -528,136 +567,157 @@ class BudgetSettingScreenState extends State<BudgetSettingScreen> {
     );
   }
 
-  /// Helper function to build a budget card
+  /// Helper function to build a budget card with currency formatting
   Widget _buildBudgetCard(Budget budget) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Column(
-        children: [
-          ListTile(
-            title: Text(
-              budget.category,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            subtitle: Text(
-              '${DateFormat('MMM d').format(budget.startDate)} - ${DateFormat('MMM d').format(budget.endDate)}',
-            ),
-            leading: CircleAvatar(
-              backgroundColor:
-                  Theme.of(context).colorScheme.primary.withOpacity(0.1),
-              child: Icon(
-                Icons.account_balance_wallet,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-            trailing: Text(
-              '\$${budget.budgetLimit.toStringAsFixed(2)}',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-            ),
-            onTap: () => _showBudgetDetails(budget),
-          ),
-          // Action buttons row
-          Padding(
-            padding: const EdgeInsets.only(right: 8, bottom: 8, left: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                // Edit button
-                TextButton.icon(
-                  icon: Icon(
-                    Icons.edit,
-                    size: 20,
+    return FutureBuilder<String>(
+      future:
+          _currencyService.formatCurrency(budget.budgetLimit, budget.currency),
+      builder: (context, snapshot) {
+        final formattedAmount = snapshot.hasData
+            ? snapshot.data!
+            : '${budget.currency} ${budget.budgetLimit.toStringAsFixed(2)}';
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            children: [
+              ListTile(
+                title: Text(
+                  budget.category,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(
+                  '${DateFormat('MMM d').format(budget.startDate)} - ${DateFormat('MMM d').format(budget.endDate)}',
+                ),
+                leading: CircleAvatar(
+                  backgroundColor:
+                      Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                  child: Icon(
+                    Icons.account_balance_wallet,
                     color: Theme.of(context).colorScheme.primary,
                   ),
-                  label: Text(
-                    'Edit',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                  ),
-                  onPressed: () => _editBudget(budget),
                 ),
-                const SizedBox(width: 8),
-                // Delete button
-                TextButton.icon(
-                  icon: const Icon(
-                    Icons.delete,
-                    size: 20,
-                    color: Colors.red,
+                trailing: Text(
+                  formattedAmount,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
                   ),
-                  label: const Text(
-                    'Delete',
-                    style: TextStyle(
-                      color: Colors.red,
-                    ),
-                  ),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                  ),
-                  onPressed: () => _deleteBudget(budget),
                 ),
-              ],
-            ),
+                onTap: () => _showBudgetDetails(budget),
+              ),
+              // Action buttons row
+              Padding(
+                padding: const EdgeInsets.only(right: 8, bottom: 8, left: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    // Edit button
+                    TextButton.icon(
+                      icon: Icon(
+                        Icons.edit,
+                        size: 20,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      label: Text(
+                        'Edit',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                      ),
+                      onPressed: () => _editBudget(budget),
+                    ),
+                    const SizedBox(width: 8),
+                    // Delete button
+                    TextButton.icon(
+                      icon: const Icon(
+                        Icons.delete,
+                        size: 20,
+                        color: Colors.red,
+                      ),
+                      label: const Text(
+                        'Delete',
+                        style: TextStyle(
+                          color: Colors.red,
+                        ),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                      ),
+                      onPressed: () => _deleteBudget(budget),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  /// Show budget details dialog
+  /// Show budget details dialog with currency formatting
   void _showBudgetDetails(Budget budget) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(budget.category),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildDetailRow(
-                'Budget Limit:', '\$${budget.budgetLimit.toStringAsFixed(2)}'),
-            _buildDetailRow('Start Date:',
-                DateFormat('MMM d, yyyy').format(budget.startDate)),
-            _buildDetailRow(
-                'End Date:', DateFormat('MMM d, yyyy').format(budget.endDate)),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _editBudget(budget);
-            },
-            child: const Text('Edit'),
-          ),
-          TextButton(
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.red,
-            ),
-            onPressed: () {
-              Navigator.of(context).pop();
-              _deleteBudget(budget);
-            },
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+      builder: (dialogContext) {
+        return FutureBuilder<String>(
+            future: _currencyService.formatCurrency(
+                budget.budgetLimit, budget.currency),
+            builder: (context, snapshot) {
+              final formattedAmount = snapshot.hasData
+                  ? snapshot.data!
+                  : '${budget.currency} ${budget.budgetLimit.toStringAsFixed(2)}';
+
+              return AlertDialog(
+                title: Text(budget.category),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildDetailRow('Budget Limit:', formattedAmount),
+                    _buildDetailRow('Start Date:',
+                        DateFormat('MMM d, yyyy').format(budget.startDate)),
+                    _buildDetailRow('End Date:',
+                        DateFormat('MMM d, yyyy').format(budget.endDate)),
+                    _buildDetailRow('Currency:', budget.currency),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Close'),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(dialogContext).pop();
+                      _editBudget(budget);
+                    },
+                    child: const Text('Edit'),
+                  ),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.red,
+                    ),
+                    onPressed: () {
+                      Navigator.of(dialogContext).pop();
+                      _deleteBudget(budget);
+                    },
+                    child: const Text('Delete'),
+                  ),
+                ],
+              );
+            });
+      },
     );
   }
 

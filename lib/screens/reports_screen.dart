@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
-import '../models/expense.dart';
-import '../services/database_service.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:csv/csv.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import '../models/expense.dart';
+import '../services/database_service.dart';
+import '../services/currency_service.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -18,27 +19,26 @@ class ReportsScreen extends StatefulWidget {
 
 class ReportsScreenState extends State<ReportsScreen>
     with SingleTickerProviderStateMixin {
+  final CurrencyService _currencyService = CurrencyService();
+  final DatabaseService _databaseService = DatabaseService();
+  String _currencyCode = 'USD';
+  String _currencySymbol = '\$';
+
   List<Expense> _expenses = [];
   List<Expense> _filteredExpenses = [];
   DateTimeRange? _selectedDateRange;
   String? _selectedCategory;
-  String _selectedPeriod = 'month'; // 'week', 'month', 'year', 'all'
+  String _selectedPeriod = 'month';
   bool _isLoading = true;
-
-  // Tab controller for switching between different chart views
-  // MODIFIED: Changed from 3 to 2 tabs (removed Trends tab)
   late TabController _tabController;
-
-  // Comparison mode
   bool _showComparison = false;
-  String _comparisonPeriod = 'previous'; // 'previous', 'same_last_year'
+  String _comparisonPeriod = 'previous';
 
   @override
   void initState() {
     super.initState();
-    // MODIFIED: Changed from 3 to 2 tabs
     _tabController = TabController(length: 2, vsync: this);
-    loadExpenses();
+    _loadData();
   }
 
   @override
@@ -47,80 +47,68 @@ class ReportsScreenState extends State<ReportsScreen>
     super.dispose();
   }
 
-  // Method to load expenses (made public for refresh from home screen)
-  Future<void> loadExpenses() async {
-    setState(() {
-      _isLoading = true;
-    });
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
 
     try {
-      final expenses = await DatabaseService().getExpenses();
+      await _currencyService.initialize();
+      _currencyCode = await _currencyService.getCurrencyCode();
+      _currencySymbol = await _currencyService.getCurrencySymbol();
 
+      final expenses = await _databaseService.getExpenses();
       if (!mounted) return;
 
       setState(() {
         _expenses = expenses;
-        _applyFilters(); // Apply filters to update _filteredExpenses
+        _applyFilters();
         _isLoading = false;
       });
     } catch (e) {
       if (!mounted) return;
-
-      setState(() {
-        _isLoading = false;
-      });
-
+      setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load expenses: $e')),
+        SnackBar(content: Text('Failed to load data: $e')),
       );
     }
   }
 
-  // Apply all filters to get filtered expenses
   void _applyFilters() {
+    final now = DateTime.now();
+    DateTime? periodStart;
+
+    switch (_selectedPeriod) {
+      case 'week':
+        periodStart = now.subtract(Duration(days: now.weekday - 1));
+        break;
+      case 'month':
+        periodStart = DateTime(now.year, now.month, 1);
+        break;
+      case 'year':
+        periodStart = DateTime(now.year, 1, 1);
+        break;
+    }
+
     setState(() {
       _filteredExpenses = _expenses.where((expense) {
-        // Filter by date range
-        if (_selectedDateRange != null) {
-          if (expense.date.isBefore(_selectedDateRange!.start) ||
-              expense.date.isAfter(_selectedDateRange!.end)) {
-            return false;
-          }
+        // Date range filter
+        if (_selectedDateRange != null &&
+            (expense.date.isBefore(_selectedDateRange!.start) ||
+                expense.date.isAfter(_selectedDateRange!.end))) {
+          return false;
         }
 
-        // Filter by category
-        if (_selectedCategory != null && _selectedCategory != 'All') {
-          if (expense.category != _selectedCategory) {
-            return false;
-          }
+        // Period filter
+        if (_selectedPeriod != 'all' &&
+            periodStart != null &&
+            expense.date.isBefore(periodStart)) {
+          return false;
         }
 
-        // Filter by period (week, month, year)
-        if (_selectedPeriod != 'all') {
-          final now = DateTime.now();
-          DateTime periodStart;
-
-          switch (_selectedPeriod) {
-            case 'week':
-              // Start of current week (Monday)
-              periodStart = DateTime(now.year, now.month, now.day)
-                  .subtract(Duration(days: now.weekday - 1));
-              break;
-            case 'month':
-              // Start of current month
-              periodStart = DateTime(now.year, now.month, 1);
-              break;
-            case 'year':
-              // Start of current year
-              periodStart = DateTime(now.year, 1, 1);
-              break;
-            default:
-              periodStart = DateTime(1900); // Far in the past to include all
-          }
-
-          if (expense.date.isBefore(periodStart)) {
-            return false;
-          }
+        // Category filter
+        if (_selectedCategory != null &&
+            _selectedCategory != 'All' &&
+            expense.category != _selectedCategory) {
+          return false;
         }
 
         return true;
@@ -128,81 +116,65 @@ class ReportsScreenState extends State<ReportsScreen>
     });
   }
 
-  // Calculate total spending for a specific period
   double _calculateTotalSpending(List<Expense> expenses) {
     return expenses.fold(0.0, (sum, expense) => sum + expense.amount);
   }
 
-  // Calculate spending by category
   Map<String, double> _calculateSpendingByCategory(List<Expense> expenses) {
-    final Map<String, double> spendingByCategory = {};
+    final Map<String, double> result = {};
     for (final expense in expenses) {
-      spendingByCategory[expense.category] =
-          (spendingByCategory[expense.category] ?? 0) + expense.amount;
+      result[expense.category] =
+          (result[expense.category] ?? 0) + expense.amount;
     }
-    return spendingByCategory;
+    return result;
   }
 
-  // Get comparison data based on selected period
   List<Expense> _getComparisonData() {
     if (!_showComparison) return [];
 
     final now = DateTime.now();
-
-    // Determine current period range
-    DateTime currentStart;
-    DateTime currentEnd = now;
+    DateTime currentStart, currentEnd = now;
 
     switch (_selectedPeriod) {
       case 'week':
-        // Start of current week (Monday)
-        currentStart = DateTime(now.year, now.month, now.day)
-            .subtract(Duration(days: now.weekday - 1));
+        currentStart = now.subtract(Duration(days: now.weekday - 1));
         break;
       case 'month':
-        // Start of current month
         currentStart = DateTime(now.year, now.month, 1);
-        currentEnd =
-            DateTime(now.year, now.month + 1, 0); // Last day of current month
+        currentEnd = DateTime(now.year, now.month + 1, 0);
         break;
       case 'year':
-        // Start of current year
         currentStart = DateTime(now.year, 1, 1);
         currentEnd = DateTime(now.year, 12, 31);
         break;
       default:
-        return []; // No comparison for 'all'
+        return [];
     }
 
-    // Determine comparison period
-    DateTime comparisonStart;
-    DateTime comparisonEnd;
+    DateTime comparisonStart, comparisonEnd;
 
     if (_comparisonPeriod == 'previous') {
-      // Previous period
       final duration = currentEnd.difference(currentStart);
       comparisonEnd = currentStart.subtract(const Duration(days: 1));
       comparisonStart = comparisonEnd.subtract(duration);
     } else {
-      // Same period last year
       comparisonStart =
           DateTime(currentStart.year - 1, currentStart.month, currentStart.day);
       comparisonEnd =
           DateTime(currentEnd.year - 1, currentEnd.month, currentEnd.day);
     }
 
-    // Filter expenses for comparison period
     return _expenses.where((expense) {
       return expense.date.isAfter(comparisonStart) &&
           expense.date.isBefore(comparisonEnd.add(const Duration(days: 1)));
     }).toList();
   }
 
-  // Export expenses as PDF
   Future<void> _exportAsPDF() async {
     final pdf = pw.Document();
+    final total = _calculateTotalSpending(_filteredExpenses);
+    final spendingByCategory = _calculateSpendingByCategory(_filteredExpenses);
 
-    // Add a page to the PDF
     pdf.addPage(
       pw.Page(
         build: (pw.Context context) {
@@ -212,14 +184,18 @@ class ReportsScreenState extends State<ReportsScreen>
               pw.Text('Expense Report', style: pw.TextStyle(fontSize: 24)),
               pw.SizedBox(height: 20),
               pw.Text(
-                  'Total Expenses: \$${_calculateTotalSpending(_filteredExpenses).toStringAsFixed(2)}'),
+                'Total Expenses: $_currencySymbol${total.toStringAsFixed(2)}',
+                style: pw.TextStyle(fontSize: 18),
+              ),
               pw.SizedBox(height: 20),
-              pw.Text('Expenses by Category:'),
-              ..._calculateSpendingByCategory(_filteredExpenses)
-                  .entries
-                  .map((entry) {
+              pw.Text('Expenses by Category:',
+                  style: pw.TextStyle(fontSize: 16)),
+              pw.SizedBox(height: 10),
+              ...spendingByCategory.entries.map((entry) {
                 return pw.Text(
-                    '${entry.key}: \$${entry.value.toStringAsFixed(2)}');
+                  '${entry.key}: $_currencySymbol${entry.value.toStringAsFixed(2)}',
+                  style: pw.TextStyle(fontSize: 14),
+                );
               }),
             ],
           );
@@ -227,51 +203,219 @@ class ReportsScreenState extends State<ReportsScreen>
       ),
     );
 
-    // Save the PDF to a file
     final output = await getTemporaryDirectory();
     final file = File('${output.path}/expense_report.pdf');
     await file.writeAsBytes(await pdf.save());
-
-    // Share the PDF file
     await Share.shareXFiles([XFile(file.path)], text: 'Expense Report');
   }
 
-  // Export expenses as CSV
   Future<void> _exportAsCSV() async {
-    // Convert expenses to CSV format
-    final List<List<dynamic>> csvData = [];
-    csvData.add(['Title', 'Category', 'Amount', 'Date']); // Header row
+    final csvData = [
+      ['Title', 'Category', 'Amount ($_currencyCode)', 'Date']
+    ];
+
     for (final expense in _filteredExpenses) {
       csvData.add([
         expense.title,
         expense.category,
-        expense.amount,
+        expense.amount.toString(), // Convert double to string
         DateFormat('yyyy-MM-dd').format(expense.date),
       ]);
     }
 
-    // Convert to CSV string
-    final String csv = const ListToCsvConverter().convert(csvData);
-
-    // Save the CSV to a file
     final output = await getTemporaryDirectory();
     final file = File('${output.path}/expense_report.csv');
-    await file.writeAsString(csv);
-
-    // Share the CSV file
+    await file.writeAsString(const ListToCsvConverter().convert(csvData));
     await Share.shareXFiles([XFile(file.path)], text: 'Expense Report');
+  }
+
+  void _showFilterBottomSheet(BuildContext context, List<String> categories) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.6,
+              minChildSize: 0.4,
+              maxChildSize: 0.9,
+              builder: (context, scrollController) {
+                return SingleChildScrollView(
+                  controller: scrollController,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Center(
+                          child: Text(
+                            'Filter Reports',
+                            style: TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Time Period',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            ChoiceChip(
+                              label: const Text('This Week'),
+                              selected: _selectedPeriod == 'week',
+                              onSelected: (selected) =>
+                                  setState(() => _selectedPeriod = 'week'),
+                            ),
+                            ChoiceChip(
+                              label: const Text('This Month'),
+                              selected: _selectedPeriod == 'month',
+                              onSelected: (selected) =>
+                                  setState(() => _selectedPeriod = 'month'),
+                            ),
+                            ChoiceChip(
+                              label: const Text('This Year'),
+                              selected: _selectedPeriod == 'year',
+                              onSelected: (selected) =>
+                                  setState(() => _selectedPeriod = 'year'),
+                            ),
+                            ChoiceChip(
+                              label: const Text('All Time'),
+                              selected: _selectedPeriod == 'all',
+                              onSelected: (selected) =>
+                                  setState(() => _selectedPeriod = 'all'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Custom Date Range',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.calendar_today),
+                          label: Text(
+                            _selectedDateRange == null
+                                ? 'Select Date Range'
+                                : '${DateFormat('MMM d').format(_selectedDateRange!.start)} - ${DateFormat('MMM d').format(_selectedDateRange!.end)}',
+                          ),
+                          onPressed: () async {
+                            final DateTimeRange? picked =
+                                await showDateRangePicker(
+                              context: context,
+                              firstDate: DateTime(2000),
+                              lastDate: DateTime(2100),
+                              initialDateRange: _selectedDateRange,
+                            );
+                            if (picked != null) {
+                              setState(() => _selectedDateRange = picked);
+                            }
+                          },
+                        ),
+                        if (_selectedDateRange != null)
+                          TextButton(
+                            onPressed: () =>
+                                setState(() => _selectedDateRange = null),
+                            child: const Text('Clear Date Range'),
+                          ),
+                        if (categories.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Categories',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              ChoiceChip(
+                                label: const Text('All Categories'),
+                                selected: _selectedCategory == null ||
+                                    _selectedCategory == 'All',
+                                onSelected: (selected) =>
+                                    setState(() => _selectedCategory = 'All'),
+                              ),
+                              ...categories.map((category) => ChoiceChip(
+                                    label: Text(category),
+                                    selected: _selectedCategory == category,
+                                    onSelected: (selected) => setState(() =>
+                                        _selectedCategory =
+                                            selected ? category : null),
+                                  )),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Comparison',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Show comparison'),
+                          value: _showComparison,
+                          onChanged: (value) =>
+                              setState(() => _showComparison = value),
+                        ),
+                        if (_showComparison) ...[
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              ChoiceChip(
+                                label: const Text('Previous Period'),
+                                selected: _comparisonPeriod == 'previous',
+                                onSelected: (selected) => setState(
+                                    () => _comparisonPeriod = 'previous'),
+                              ),
+                              ChoiceChip(
+                                label: const Text('Same Period Last Year'),
+                                selected: _comparisonPeriod == 'same_last_year',
+                                onSelected: (selected) => setState(
+                                    () => _comparisonPeriod = 'same_last_year'),
+                              ),
+                            ],
+                          ),
+                        ],
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: () {
+                              this.setState(() {
+                                _applyFilters();
+                                Navigator.pop(context);
+                              });
+                            },
+                            child: const Text('Apply Filters'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    // Get list of all categories for filter
-    final allCategories = _expenses.map((e) => e.category).toSet().toList();
-    allCategories.sort();
-
-    // Get comparison data
+    final allCategories = _expenses.map((e) => e.category).toSet().toList()
+      ..sort();
     final comparisonExpenses = _getComparisonData();
-
-    // Calculate key metrics
     final currentTotal = _calculateTotalSpending(_filteredExpenses);
     final comparisonTotal = _calculateTotalSpending(comparisonExpenses);
     final spendingByCategory = _calculateSpendingByCategory(_filteredExpenses);
@@ -283,26 +427,20 @@ class ReportsScreenState extends State<ReportsScreen>
           IconButton(
             icon: const Icon(Icons.filter_list),
             onPressed: () => _showFilterBottomSheet(context, allCategories),
-            tooltip: 'Filter',
           ),
           PopupMenuButton(
             itemBuilder: (context) => [
               PopupMenuItem(
                 child: const Text('Export as PDF'),
-                onTap: () async {
-                  await _exportAsPDF();
-                },
+                onTap: () => _exportAsPDF(),
               ),
               PopupMenuItem(
                 child: const Text('Export as CSV'),
-                onTap: () async {
-                  await _exportAsCSV();
-                },
+                onTap: () => _exportAsCSV(),
               ),
             ],
           ),
         ],
-        // MODIFIED: Changed tab titles, removed 'Trends' tab
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -316,13 +454,8 @@ class ReportsScreenState extends State<ReportsScreen>
           : TabBarView(
               controller: _tabController,
               children: [
-                // Overview Tab
                 _buildOverviewTab(
                     currentTotal, comparisonTotal, spendingByCategory),
-
-                // MODIFIED: Removed Trends Tab
-
-                // Categories Tab
                 _buildCategoriesTab(spendingByCategory),
               ],
             ),
@@ -331,7 +464,6 @@ class ReportsScreenState extends State<ReportsScreen>
 
   Widget _buildOverviewTab(double currentTotal, double comparisonTotal,
       Map<String, double> spendingByCategory) {
-    // Calculate percentage change
     final percentChange = comparisonTotal > 0
         ? ((currentTotal - comparisonTotal) / comparisonTotal) * 100
         : 0.0;
@@ -341,18 +473,14 @@ class ReportsScreenState extends State<ReportsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Filter indicators
           _buildActiveFilters(),
-
           const SizedBox(height: 16),
-
-          // Summary cards
           Row(
             children: [
               Expanded(
                 child: _buildSummaryCard(
                   'Total Spending',
-                  '\$${currentTotal.toStringAsFixed(2)}',
+                  currentTotal,
                   Icons.account_balance_wallet,
                   Theme.of(context).colorScheme.primary,
                 ),
@@ -364,7 +492,7 @@ class ReportsScreenState extends State<ReportsScreen>
                     _comparisonPeriod == 'previous'
                         ? 'Previous Period'
                         : 'Last Year',
-                    '\$${comparisonTotal.toStringAsFixed(2)}',
+                    comparisonTotal,
                     Icons.history,
                     Colors.grey.shade700,
                     percentChange: percentChange,
@@ -373,20 +501,12 @@ class ReportsScreenState extends State<ReportsScreen>
               ],
             ],
           ),
-
           const SizedBox(height: 24),
-
-          // Spending pie chart
           const Text(
             'Spending by Category',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-
           const SizedBox(height: 16),
-
           Container(
             height: 250,
             padding: const EdgeInsets.all(8),
@@ -398,63 +518,30 @@ class ReportsScreenState extends State<ReportsScreen>
                       centerSpaceRadius: 40,
                       sections: _buildPieChartSections(
                           spendingByCategory, currentTotal),
-                      pieTouchData: PieTouchData(
-                        touchCallback: (FlTouchEvent event, pieTouchResponse) {
-                          if (event is FlTapUpEvent) {
-                            if (pieTouchResponse?.touchedSection != null) {
-                              final touchedIndex = pieTouchResponse!
-                                  .touchedSection!.touchedSectionIndex;
-                              final categories =
-                                  spendingByCategory.keys.toList();
-                              if (touchedIndex >= 0 &&
-                                  touchedIndex < categories.length) {
-                                final category = categories[touchedIndex];
-                                _showCategoryDetailsDialog(
-                                    context,
-                                    category,
-                                    spendingByCategory[category] ?? 0,
-                                    currentTotal);
-                              }
-                            }
-                          }
-                        },
-                      ),
                     ),
                   ),
           ),
-
           const SizedBox(height: 24),
-
-          // Top spending categories
           const Text(
             'Top Spending Categories',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-
           const SizedBox(height: 8),
-
           _buildTopCategoriesList(spendingByCategory, currentTotal),
         ],
       ),
     );
   }
 
-  // MODIFIED: Removed _buildTrendsTab method entirely
-
   Widget _buildCategoriesTab(Map<String, double> spendingByCategory) {
-    final List<MapEntry<String, double>> sortedCategories =
-        spendingByCategory.entries.toList()
-          ..sort((a, b) => b.value.compareTo(a.value));
-
+    final sortedCategories = spendingByCategory.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
     final total =
         spendingByCategory.values.fold(0.0, (sum, amount) => sum + amount);
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
-      itemCount: sortedCategories.length + 1, // +1 for the header
+      itemCount: sortedCategories.length + 1,
       itemBuilder: (context, index) {
         if (index == 0) {
           return Column(
@@ -464,10 +551,7 @@ class ReportsScreenState extends State<ReportsScreen>
               const SizedBox(height: 16),
               const Text(
                 'Spending by Category',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               const Divider(),
@@ -506,8 +590,6 @@ class ReportsScreenState extends State<ReportsScreen>
                                 (sortedCategories[0].value * 1.1),
                             backgroundColor: Colors.grey.shade200,
                             color: _getCategoryColor(categoryEntry.key),
-                            borderRadius: BorderRadius.circular(2),
-                            minHeight: 6,
                           ),
                         ],
                       ),
@@ -516,11 +598,18 @@ class ReportsScreenState extends State<ReportsScreen>
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Text(
-                          '\$${categoryEntry.value.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
+                        FutureBuilder<String>(
+                          future: _currencyService
+                              .formatCurrency(categoryEntry.value),
+                          builder: (context, snapshot) {
+                            return Text(
+                              snapshot.hasData
+                                  ? snapshot.data!
+                                  : '$_currencySymbol${categoryEntry.value.toStringAsFixed(2)}',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold),
+                            );
+                          },
                         ),
                         Text(
                           '${percentage.toStringAsFixed(1)}%',
@@ -547,50 +636,35 @@ class ReportsScreenState extends State<ReportsScreen>
       spacing: 8,
       runSpacing: 4,
       children: [
-        // Period chip
         ChoiceChip(
           label: Text(_getPeriodLabel()),
           selected: true,
           onSelected: (selected) => _showFilterBottomSheet(context, []),
         ),
-
-        // Date range chip (if selected)
         if (_selectedDateRange != null)
           Chip(
             label: Text(
               '${DateFormat('MMM d').format(_selectedDateRange!.start)} - ${DateFormat('MMM d').format(_selectedDateRange!.end)}',
             ),
-            onDeleted: () {
-              setState(() {
-                _selectedDateRange = null;
-                _applyFilters();
-              });
-            },
+            onDeleted: () => setState(() {
+              _selectedDateRange = null;
+              _applyFilters();
+            }),
           ),
-
-        // Category chip (if selected)
         if (_selectedCategory != null && _selectedCategory != 'All')
           Chip(
             label: Text(_selectedCategory!),
-            onDeleted: () {
-              setState(() {
-                _selectedCategory = null;
-                _applyFilters();
-              });
-            },
+            onDeleted: () => setState(() {
+              _selectedCategory = null;
+              _applyFilters();
+            }),
           ),
-
-        // Comparison chip
         if (_showComparison)
           Chip(
-            label: Text(
-              _comparisonPeriod == 'previous' ? 'vs Previous' : 'vs Last Year',
-            ),
-            onDeleted: () {
-              setState(() {
-                _showComparison = false;
-              });
-            },
+            label: Text(_comparisonPeriod == 'previous'
+                ? 'vs Previous'
+                : 'vs Last Year'),
+            onDeleted: () => setState(() => _showComparison = false),
           ),
       ],
     );
@@ -612,13 +686,11 @@ class ReportsScreenState extends State<ReportsScreen>
   }
 
   Widget _buildSummaryCard(
-      String title, String value, IconData icon, Color color,
+      String title, double amount, IconData icon, Color color,
       {double? percentChange}) {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -630,53 +702,48 @@ class ReportsScreenState extends State<ReportsScreen>
                 const SizedBox(width: 8),
                 Text(
                   title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey,
-                  ),
+                  style: const TextStyle(fontSize: 14, color: Colors.grey),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+            FutureBuilder<String>(
+              future: _currencyService.formatCurrency(amount),
+              builder: (context, snapshot) {
+                return Text(
+                  snapshot.hasData
+                      ? snapshot.data!
+                      : '$_currencySymbol${amount.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                );
+              },
             ),
-            if (percentChange != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Row(
-                  children: [
-                    Icon(
-                      percentChange >= 0
-                          ? Icons.arrow_upward
-                          : Icons.arrow_downward,
-                      size: 14,
+            if (percentChange != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Icon(
+                    percentChange >= 0
+                        ? Icons.arrow_upward
+                        : Icons.arrow_downward,
+                    size: 14,
+                    color: percentChange >= 0 ? Colors.red : Colors.green,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${percentChange.abs().toStringAsFixed(1)}%',
+                    style: TextStyle(
+                      fontSize: 12,
                       color: percentChange >= 0 ? Colors.red : Colors.green,
+                      fontWeight: FontWeight.bold,
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${percentChange.abs().toStringAsFixed(1)}%',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: percentChange >= 0 ? Colors.red : Colors.green,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      percentChange >= 0 ? 'increase' : 'decrease',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
+            ],
           ],
         ),
       ),
@@ -685,21 +752,17 @@ class ReportsScreenState extends State<ReportsScreen>
 
   List<PieChartSectionData> _buildPieChartSections(
       Map<String, double> spendingByCategory, double total) {
-    final List<MapEntry<String, double>> sortedEntries =
-        spendingByCategory.entries.toList()
-          ..sort((a, b) => b.value.compareTo(a.value));
+    final sortedEntries = spendingByCategory.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
 
-    // Only show top 5 categories, group the rest as "Other"
-    const int maxCategories = 5;
+    const maxCategories = 5;
     double otherAmount = 0;
 
     if (sortedEntries.length > maxCategories) {
       for (int i = maxCategories; i < sortedEntries.length; i++) {
         otherAmount += sortedEntries[i].value;
       }
-
       sortedEntries.removeRange(maxCategories, sortedEntries.length);
-
       if (otherAmount > 0) {
         sortedEntries.add(MapEntry('Other', otherAmount));
       }
@@ -721,7 +784,7 @@ class ReportsScreenState extends State<ReportsScreen>
           color: Colors.white,
         ),
         color: _getCategoryColor(category, index),
-        badgeWidget: _percentage(percentage) >= 5
+        badgeWidget: percentage >= 5
             ? Text(
                 category,
                 style: const TextStyle(
@@ -736,32 +799,25 @@ class ReportsScreenState extends State<ReportsScreen>
     }).toList();
   }
 
-  // Helper to format percentage
-  double _percentage(double value) => (value * 10).round() / 10;
-
   Widget _buildTopCategoriesList(
       Map<String, double> spendingByCategory, double total) {
-    final List<MapEntry<String, double>> sortedCategories =
-        spendingByCategory.entries.toList()
-          ..sort((a, b) => b.value.compareTo(a.value));
-
-    // Only show top 3 categories
-    final topCategories = sortedCategories.take(3).toList();
+    final topCategories = spendingByCategory.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value))
+      ..take(3);
 
     return Column(
-      children: topCategories.asMap().entries.map((entry) {
-        final index = entry.key;
-        final category = entry.value.key;
-        final amount = entry.value.value;
+      children: topCategories.map((entry) {
+        final category = entry.key;
+        final amount = entry.value;
         final percentage = (amount / total) * 100;
 
         return ListTile(
           contentPadding: EdgeInsets.zero,
           leading: CircleAvatar(
-            backgroundColor: _getCategoryColor(category, index),
+            backgroundColor: _getCategoryColor(category),
             radius: 18,
             child: Text(
-              (index + 1).toString(),
+              (topCategories.indexOf(entry) + 1).toString(),
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -770,16 +826,21 @@ class ReportsScreenState extends State<ReportsScreen>
           ),
           title: Text(
             category,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
+            style: const TextStyle(fontWeight: FontWeight.bold),
           ),
-          subtitle: Text('\$${amount.toStringAsFixed(2)}'),
+          subtitle: FutureBuilder<String>(
+            future: _currencyService.formatCurrency(amount),
+            builder: (context, snapshot) {
+              return Text(
+                snapshot.hasData
+                    ? snapshot.data!
+                    : '$_currencySymbol${amount.toStringAsFixed(2)}',
+              );
+            },
+          ),
           trailing: Text(
             '${percentage.toStringAsFixed(1)}%',
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
+            style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           onTap: () =>
               _showCategoryDetailsDialog(context, category, amount, total),
@@ -789,7 +850,7 @@ class ReportsScreenState extends State<ReportsScreen>
   }
 
   Color _getCategoryColor(String category, [int? index]) {
-    final Map<String, Color> categoryColors = {
+    const categoryColors = {
       'Food': Colors.orange,
       'Transport': Colors.blue,
       'Entertainment': Colors.purple,
@@ -801,13 +862,11 @@ class ReportsScreenState extends State<ReportsScreen>
       'Other': Colors.blueGrey,
     };
 
-    // If category has a predefined color, use it
     if (categoryColors.containsKey(category)) {
       return categoryColors[category]!;
     }
 
-    // Otherwise, use a color from the accent colors based on index or hash
-    final List<Color> accentColors = [
+    final accentColors = [
       Colors.amber,
       Colors.cyan,
       Colors.indigo,
@@ -818,17 +877,11 @@ class ReportsScreenState extends State<ReportsScreen>
       Colors.lightGreen,
     ];
 
-    if (index != null) {
-      return accentColors[index % accentColors.length];
-    }
-
-    // Use hash-based color for consistent coloring
-    final hashCode = category.hashCode;
-    return accentColors[hashCode % accentColors.length];
+    return accentColors[index ?? category.hashCode % accentColors.length];
   }
 
   Widget _getCategoryIcon(String category) {
-    final Map<String, IconData> categoryIcons = {
+    const categoryIcons = {
       'Food': Icons.restaurant,
       'Transport': Icons.directions_car,
       'Entertainment': Icons.movie,
@@ -840,13 +893,11 @@ class ReportsScreenState extends State<ReportsScreen>
       'Other': Icons.category,
     };
 
-    final IconData iconData = categoryIcons[category] ?? Icons.category;
-
     return CircleAvatar(
       backgroundColor: _getCategoryColor(category).withOpacity(0.1),
       radius: 20,
       child: Icon(
-        iconData,
+        categoryIcons[category] ?? Icons.category,
         color: _getCategoryColor(category),
         size: 20,
       ),
@@ -856,28 +907,21 @@ class ReportsScreenState extends State<ReportsScreen>
   void _showCategoryDetailsDialog(
       BuildContext context, String category, double amount, double total) {
     final percentage = (amount / total) * 100;
-
-    // Filter expenses for this category
     final categoryExpenses = _filteredExpenses
         .where((expense) => expense.category == category)
-        .toList();
-
-    // Sort by date (most recent first)
-    categoryExpenses.sort((a, b) => b.date.compareTo(a.date));
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
 
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.8,
+            maxWidth: MediaQuery.of(context).size.width * 0.9,
           ),
-          child: Container(
-            width: double.maxFinite,
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.8,
-              maxWidth: MediaQuery.of(context).size.width * 0.9,
-            ),
+          child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -900,16 +944,14 @@ class ReportsScreenState extends State<ReportsScreen>
                           ),
                           Text(
                             '${percentage.toStringAsFixed(1)}% of total spending',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                            ),
+                            style: TextStyle(color: Colors.grey[600]),
                           ),
                         ],
                       ),
                     ),
                     IconButton(
                       icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.of(context).pop(),
+                      onPressed: () => Navigator.pop(context),
                     ),
                   ],
                 ),
@@ -917,12 +959,17 @@ class ReportsScreenState extends State<ReportsScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Total: \$${amount.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    FutureBuilder<String>(
+                      future: _currencyService.formatCurrency(amount),
+                      builder: (context, snapshot) {
+                        return Text(
+                          'Total: ${snapshot.hasData ? snapshot.data! : '$_currencySymbol${amount.toStringAsFixed(2)}'}',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        );
+                      },
                     ),
                     Text(
                       '${categoryExpenses.length} transactions',
@@ -940,13 +987,19 @@ class ReportsScreenState extends State<ReportsScreen>
                         contentPadding: EdgeInsets.zero,
                         title: Text(expense.title),
                         subtitle: Text(
-                          DateFormat('MMM d, yyyy').format(expense.date),
-                        ),
-                        trailing: Text(
-                          '\$${expense.amount.toStringAsFixed(2)}',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
+                            DateFormat('MMM d, yyyy').format(expense.date)),
+                        trailing: FutureBuilder<String>(
+                          future:
+                              _currencyService.formatCurrency(expense.amount),
+                          builder: (context, snapshot) {
+                            return Text(
+                              snapshot.hasData
+                                  ? snapshot.data!
+                                  : '$_currencySymbol${expense.amount.toStringAsFixed(2)}',
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold),
+                            );
+                          },
                         ),
                       );
                     },
@@ -955,250 +1008,8 @@ class ReportsScreenState extends State<ReportsScreen>
               ],
             ),
           ),
-        );
-      },
-    );
-  }
-
-  void _showFilterBottomSheet(BuildContext context, List<String> categories) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
       ),
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (BuildContext context, StateSetter setState) {
-            return DraggableScrollableSheet(
-              initialChildSize: 0.6,
-              minChildSize: 0.4,
-              maxChildSize: 0.9,
-              expand: false,
-              builder: (context, scrollController) {
-                return SingleChildScrollView(
-                  controller: scrollController,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Center(
-                          child: Text(
-                            'Filter Reports',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        const Text(
-                          'Time Period',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            ChoiceChip(
-                              label: const Text('This Week'),
-                              selected: _selectedPeriod == 'week',
-                              onSelected: (selected) {
-                                setState(() {
-                                  _selectedPeriod = 'week';
-                                });
-                              },
-                            ),
-                            ChoiceChip(
-                              label: const Text('This Month'),
-                              selected: _selectedPeriod == 'month',
-                              onSelected: (selected) {
-                                setState(() {
-                                  _selectedPeriod = 'month';
-                                });
-                              },
-                            ),
-                            ChoiceChip(
-                              label: const Text('This Year'),
-                              selected: _selectedPeriod == 'year',
-                              onSelected: (selected) {
-                                setState(() {
-                                  _selectedPeriod = 'year';
-                                });
-                              },
-                            ),
-                            ChoiceChip(
-                              label: const Text('All Time'),
-                              selected: _selectedPeriod == 'all',
-                              onSelected: (selected) {
-                                setState(() {
-                                  _selectedPeriod = 'all';
-                                });
-                              },
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Custom Date Range',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.calendar_today),
-                          label: Text(
-                            _selectedDateRange == null
-                                ? 'Select Date Range'
-                                : '${DateFormat('MMM d').format(_selectedDateRange!.start)} - ${DateFormat('MMM d').format(_selectedDateRange!.end)}',
-                          ),
-                          onPressed: () async {
-                            final DateTimeRange? picked =
-                                await showDateRangePicker(
-                              context: context,
-                              firstDate: DateTime(2000),
-                              lastDate: DateTime(2100),
-                              initialDateRange: _selectedDateRange,
-                            );
-
-                            if (picked != null) {
-                              setState(() {
-                                _selectedDateRange = picked;
-                              });
-                            }
-                          },
-                        ),
-                        if (_selectedDateRange != null)
-                          TextButton(
-                            child: const Text('Clear Date Range'),
-                            onPressed: () {
-                              setState(() {
-                                _selectedDateRange = null;
-                              });
-                            },
-                          ),
-                        const SizedBox(height: 16),
-                        if (categories.isNotEmpty) ...[
-                          const Text(
-                            'Categories',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            children: [
-                              ChoiceChip(
-                                label: const Text('All Categories'),
-                                selected: _selectedCategory == null ||
-                                    _selectedCategory == 'All',
-                                onSelected: (selected) {
-                                  setState(() {
-                                    _selectedCategory = 'All';
-                                  });
-                                },
-                              ),
-                              ...categories.map((category) => ChoiceChip(
-                                    label: Text(category),
-                                    selected: _selectedCategory == category,
-                                    onSelected: (selected) {
-                                      setState(() {
-                                        _selectedCategory =
-                                            selected ? category : null;
-                                      });
-                                    },
-                                  )),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-                        ],
-                        const Text(
-                          'Comparison',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Show comparison'),
-                          subtitle: const Text(
-                              'Compare with previous period or last year'),
-                          value: _showComparison,
-                          onChanged: (value) {
-                            setState(() {
-                              _showComparison = value;
-                            });
-                          },
-                        ),
-                        if (_showComparison) ...[
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            children: [
-                              ChoiceChip(
-                                label: const Text('Previous Period'),
-                                selected: _comparisonPeriod == 'previous',
-                                onSelected: (selected) {
-                                  setState(() {
-                                    _comparisonPeriod = 'previous';
-                                  });
-                                },
-                              ),
-                              ChoiceChip(
-                                label: const Text('Same Period Last Year'),
-                                selected: _comparisonPeriod == 'same_last_year',
-                                onSelected: (selected) {
-                                  setState(() {
-                                    _comparisonPeriod = 'same_last_year';
-                                  });
-                                },
-                              ),
-                            ],
-                          ),
-                        ],
-                        const SizedBox(height: 24),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            child: const Text('Apply Filters'),
-                            onPressed: () {
-                              // Apply filters
-                              this.setState(() {
-                                // Update selection from local state
-                                _selectedPeriod = _selectedPeriod;
-                                _selectedDateRange = _selectedDateRange;
-                                _selectedCategory = _selectedCategory;
-                                _showComparison = _showComparison;
-                                _comparisonPeriod = _comparisonPeriod;
-
-                                // Apply filters
-                                _applyFilters();
-                              });
-
-                              Navigator.of(context).pop();
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
     );
   }
 }

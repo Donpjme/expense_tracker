@@ -13,8 +13,10 @@ class CombinedExpensesScreen extends StatefulWidget {
 class _CombinedExpensesScreenState extends State<CombinedExpensesScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  final GlobalKey<RecurringExpenseScreenState> _recurringExpenseKey =
-      GlobalKey<RecurringExpenseScreenState>();
+
+  // Fix: Use generic State<T> instead of specific state class name
+  final GlobalKey<State<RecurringExpenseScreen>> _recurringExpenseKey =
+      GlobalKey<State<RecurringExpenseScreen>>();
 
   @override
   void initState() {
@@ -75,7 +77,11 @@ class _CombinedExpensesScreenState extends State<CombinedExpensesScreen>
           } else {
             // Toggle recurring expense form if we can access the state
             if (_recurringExpenseKey.currentState != null) {
-              _recurringExpenseKey.currentState!.toggleAddForm();
+              // Access the toggleAddForm method - safely with dynamic cast
+              final state = _recurringExpenseKey.currentState as dynamic;
+              if (state != null && state.toggleAddForm != null) {
+                state.toggleAddForm();
+              }
             }
           }
         },

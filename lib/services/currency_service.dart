@@ -21,9 +21,25 @@ class CurrencyService {
 
   // List of supported currencies
   final List<String> supportedCurrencies = [
-    'USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'CNY', 'INR',
-    'BRL', 'MXN', 'SEK', 'SGD', 'HKD', 'NZD', 'ZAR', 'RUB', 'KRW', 'NGN'
-    // Added NGN (Nigerian Naira)
+    'USD',
+    'EUR',
+    'GBP',
+    'JPY',
+    'AUD',
+    'CAD',
+    'CHF',
+    'CNY',
+    'INR',
+    'BRL',
+    'MXN',
+    'SEK',
+    'SGD',
+    'HKD',
+    'NZD',
+    'ZAR',
+    'RUB',
+    'KRW',
+    'NGN'
   ];
 
   // Currency symbols for formatting
@@ -46,14 +62,17 @@ class CurrencyService {
     'ZAR': 'R',
     'RUB': '₽',
     'KRW': '₩',
-    'NGN': '₦', // Added Nigerian Naira symbol
+    'NGN': '₦',
   };
 
   // User's default currency (stored in shared preferences)
   String _defaultCurrency = 'USD';
+  bool _isInitialized = false;
 
   // Initialize and load saved currency preference
   Future<void> initialize() async {
+    if (_isInitialized) return;
+
     try {
       final prefs = await SharedPreferences.getInstance();
       _defaultCurrency = prefs.getString(_defaultCurrencyKey) ?? 'USD';
@@ -68,6 +87,7 @@ class CurrencyService {
         }
       }
 
+      _isInitialized = true;
       _logger.i(
           'CurrencyService initialized with default currency: $_defaultCurrency');
     } catch (e) {
@@ -97,8 +117,10 @@ class CurrencyService {
     }
   }
 
-  // ADDED: Get the current currency code (e.g., 'USD')
+  // Get the current currency code (e.g., 'USD')
   Future<String> getCurrencyCode() async {
+    await initialize(); // Ensure service is initialized
+
     try {
       final preferences = await SharedPreferences.getInstance();
       return preferences.getString(_currencyCodeKey) ?? _defaultCurrency;
@@ -108,8 +130,10 @@ class CurrencyService {
     }
   }
 
-  // ADDED: Get the current currency symbol (e.g., '$')
+  // Get the current currency symbol (e.g., '$')
   Future<String> getCurrencySymbol() async {
+    await initialize(); // Ensure service is initialized
+
     try {
       final preferences = await SharedPreferences.getInstance();
       String symbol = preferences.getString(_currencySymbolKey) ?? '';
@@ -127,8 +151,10 @@ class CurrencyService {
     }
   }
 
-  // ADDED: Set the currency code and symbol - needed by CurrencySettingsScreen
+  // Set the currency code and symbol
   Future<bool> setCurrency(String currencyCode, String currencySymbol) async {
+    await initialize(); // Ensure service is initialized
+
     try {
       final preferences = await SharedPreferences.getInstance();
 
@@ -149,6 +175,8 @@ class CurrencyService {
 
   // Fetch latest exchange rates from an API
   Future<Map<String, dynamic>> getExchangeRates() async {
+    await initialize(); // Ensure service is initialized
+
     try {
       // Check if we have recent rates cached (refresh every 24 hours)
       if (_exchangeRates != null && _lastUpdated != null) {
@@ -216,7 +244,7 @@ class CurrencyService {
         "ZAR": 18.42,
         "RUB": 91.30,
         "KRW": 1335.12,
-        "NGN": 1520.50 // Added Nigerian Naira exchange rate
+        "NGN": 1520.50
       };
     }
   }
@@ -224,6 +252,8 @@ class CurrencyService {
   // Convert amount from one currency to another
   Future<double> convertCurrency(
       double amount, String fromCurrency, String toCurrency) async {
+    await initialize(); // Ensure service is initialized
+
     try {
       // If currencies are the same, no conversion needed
       if (fromCurrency == toCurrency) {
@@ -265,6 +295,8 @@ class CurrencyService {
   // Get historical exchange rate (for a specific date)
   Future<double> getHistoricalRate(
       DateTime date, String fromCurrency, String toCurrency) async {
+    await initialize(); // Ensure service is initialized
+
     try {
       // Format date as YYYY-MM-DD
       final formattedDate =
@@ -305,6 +337,8 @@ class CurrencyService {
 
   // Get the exchange rate between two currencies
   Future<double> getRateBetween(String fromCurrency, String toCurrency) async {
+    await initialize(); // Ensure service is initialized
+
     try {
       final rates = await getExchangeRates();
 
@@ -324,8 +358,10 @@ class CurrencyService {
     }
   }
 
-  // ENHANCED: Format amount with currency code from params or stored preference
+  // Format amount with currency code from params or stored preference
   Future<String> formatCurrency(double amount, [String? currency]) async {
+    await initialize(); // Ensure service is initialized
+
     try {
       // Use provided currency or get saved currency
       final String currencyCode = currency ?? await getCurrencyCode();
@@ -342,6 +378,17 @@ class CurrencyService {
       _logger.e('Error formatting currency: $e');
       final currencyToUse = currency ?? 'USD';
       return '$currencyToUse${amount.toStringAsFixed(2)}';
+    }
+  }
+
+  // Simplified format for numbers (no currency symbol)
+  String formatNumber(double amount, [int decimals = 2]) {
+    if (amount >= 1000000) {
+      return '${(amount / 1000000).toStringAsFixed(1)}M';
+    } else if (amount >= 1000) {
+      return '${(amount / 1000).toStringAsFixed(1)}K';
+    } else {
+      return amount.toStringAsFixed(decimals);
     }
   }
 }

@@ -3,19 +3,56 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../models/expense.dart';
 import '../models/budget.dart';
+import '../services/currency_service.dart';
 import '../screens/reports_screen.dart';
 
-class AnalyticsDashboardWidget extends StatelessWidget {
+class AnalyticsDashboardWidget extends StatefulWidget {
   final List<Expense> expenses;
   final List<Budget> budgets;
   final VoidCallback? onSeeMorePressed;
+  final String currencyCode;
+  final String currencySymbol;
 
   const AnalyticsDashboardWidget({
     required this.expenses,
     required this.budgets,
     this.onSeeMorePressed,
+    required this.currencyCode,
+    required this.currencySymbol,
     super.key,
   });
+
+  @override
+  State<AnalyticsDashboardWidget> createState() =>
+      _AnalyticsDashboardWidgetState();
+}
+
+class _AnalyticsDashboardWidgetState extends State<AnalyticsDashboardWidget> {
+  final CurrencyService _currencyService = CurrencyService();
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeCurrency();
+  }
+
+  Future<void> _initializeCurrency() async {
+    try {
+      await _currencyService.initialize();
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,13 +66,22 @@ class AnalyticsDashboardWidget extends StatelessWidget {
     final spendingByCategory =
         _calculateSpendingByCategory(currentMonthExpenses);
 
+    if (_isLoading) {
+      return const SizedBox(
+        height: 200,
+        child: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSectionHeader(
           context,
           'Analytics Overview',
-          onSeeMorePressed ??
+          widget.onSeeMorePressed ??
               () {
                 Navigator.push(
                   context,
@@ -85,9 +131,21 @@ class AnalyticsDashboardWidget extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Monthly Spending Trend',
-              style: Theme.of(context).textTheme.titleMedium,
+            Row(
+              children: [
+                Text(
+                  'Monthly Spending Trend',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '(${widget.currencyCode})',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             SizedBox(
@@ -106,7 +164,7 @@ class AnalyticsDashboardWidget extends StatelessWidget {
                                 return Padding(
                                   padding: const EdgeInsets.only(right: 4),
                                   child: Text(
-                                    '\$${value.toInt()}',
+                                    _formatNumber(value.toDouble()),
                                     style: const TextStyle(
                                       color: Colors.grey,
                                       fontSize: 10,
@@ -173,7 +231,7 @@ class AnalyticsDashboardWidget extends StatelessWidget {
                                   (List<LineBarSpot> touchedBarSpots) {
                             return touchedBarSpots.map((barSpot) {
                               return LineTooltipItem(
-                                '\$${barSpot.y.toStringAsFixed(2)}',
+                                '${widget.currencySymbol}${barSpot.y.toStringAsFixed(2)}',
                                 const TextStyle(color: Colors.white),
                               );
                             }).toList();
@@ -209,9 +267,21 @@ class AnalyticsDashboardWidget extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Top Spending Categories',
-              style: Theme.of(context).textTheme.titleMedium,
+            Row(
+              children: [
+                Text(
+                  'Top Spending Categories',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '(${widget.currencyCode})',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             topCategories.isEmpty
@@ -266,11 +336,20 @@ class AnalyticsDashboardWidget extends StatelessWidget {
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                Text(
-                                  '\$${amount.toStringAsFixed(0)}',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold),
-                                ),
+                                FutureBuilder<String>(
+                                    future:
+                                        _currencyService.formatCurrency(amount),
+                                    builder: (context, snapshot) {
+                                      final formattedAmount = snapshot.hasData
+                                          ? snapshot.data!
+                                          : '${widget.currencySymbol}${amount.toStringAsFixed(2)}';
+
+                                      return Text(
+                                        formattedAmount,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold),
+                                      );
+                                    }),
                                 Text(
                                   '${percentage.toStringAsFixed(1)}%',
                                   style: TextStyle(
@@ -298,7 +377,7 @@ class AnalyticsDashboardWidget extends StatelessWidget {
     final startOfMonth = DateTime(now.year, now.month, 1);
     final endOfMonth = DateTime(now.year, now.month + 1, 0);
 
-    return expenses.where((expense) {
+    return widget.expenses.where((expense) {
       return expense.date
               .isAfter(startOfMonth.subtract(const Duration(days: 1))) &&
           expense.date.isBefore(endOfMonth.add(const Duration(days: 1)));
@@ -318,7 +397,7 @@ class AnalyticsDashboardWidget extends StatelessWidget {
       final startOfMonth = DateTime(year, adjustedMonth, 1);
       final endOfMonth = DateTime(year, adjustedMonth + 1, 0);
 
-      final monthExpenses = expenses.where((expense) {
+      final monthExpenses = widget.expenses.where((expense) {
         return expense.date
                 .isAfter(startOfMonth.subtract(const Duration(days: 1))) &&
             expense.date.isBefore(endOfMonth.add(const Duration(days: 1)));
@@ -375,5 +454,16 @@ class AnalyticsDashboardWidget extends StatelessWidget {
     ];
 
     return fallbackColors[index % fallbackColors.length];
+  }
+
+  // Format number for display (abbreviated if needed)
+  String _formatNumber(double value) {
+    if (value >= 1000000) {
+      return '${widget.currencySymbol}${(value / 1000000).toStringAsFixed(1)}M';
+    } else if (value >= 1000) {
+      return '${widget.currencySymbol}${(value / 1000).toStringAsFixed(1)}K';
+    } else {
+      return '${widget.currencySymbol}${value.toStringAsFixed(0)}';
+    }
   }
 }
